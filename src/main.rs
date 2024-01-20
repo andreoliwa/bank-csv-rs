@@ -1,9 +1,10 @@
-use bank_csv::{
-    header_contains_string, BaseTransaction, CsvTransaction, N26Transaction, PayPalTransaction,
-};
-use chrono::Datelike;
+use bank_csv::CsvTransaction;
+use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
-use csv::{Reader, Writer};
+use csv::Writer;
+use polars::export::arrow::temporal_conversions::EPOCH_DAYS_FROM_CE;
+use polars::frame::row::Row;
+use polars::prelude::*;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 use std::error::Error;
@@ -52,47 +53,77 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
             currency
         );
 
-        // Create a CSV reader and iterate over the rows
-        let mut rdr = Reader::from_path(csv_file_path.clone())?;
-        let header = rdr.headers()?.clone();
+        let df_csv = CsvReader::from_path(csv_file_path.clone())?
+            .has_header(true)
+            .with_try_parse_dates(true)
+            .finish()?;
 
-        // TODO: this attempt didn't work, think of a better way to remove duplicated code
-        // if !parse_csv_as::<N26Transaction>(
-        //     &currency,
-        //     &mut currency_transactions,
-        //     &mut rdr,
-        //     &header,
-        // )? {
-        //     if !parse_csv_as::<PayPalTransaction>(
-        //         &currency,
-        //         &mut currency_transactions,
-        //         &mut rdr,
-        //         &header,
-        //     )? {
-        //         eprintln!("This file is not a N26 or PayPal CSV.")
-        //     }
-        // }
-        if header_contains_string(&header, N26Transaction::identification_column()) {
-            for result in rdr.records() {
-                let record = result?;
+        // PayPal configs
+        let expected_columns = ["Date", "Time", "TimeZone", "Name", "Type"];
+        let select_columns = ["Date", "Currency", "Gross", "Type", "Name"];
+        let source = "PayPal";
 
-                let n26_transaction = record.deserialize::<N26Transaction>(None)?;
-                if n26_transaction.valid(&currency) {
-                    currency_transactions.push(n26_transaction.to_csv_transaction());
-                }
-            }
-        } else if header_contains_string(&header, PayPalTransaction::identification_column()) {
-            for result in rdr.records() {
-                let record = result?;
-
-                let paypal_transaction = record.deserialize::<PayPalTransaction>(None)?;
-                if paypal_transaction.valid(&currency) {
-                    currency_transactions.push(paypal_transaction.to_csv_transaction());
-                }
-            }
-        } else {
-            eprintln!("This file is not a N26 CSV.")
+        let schema = df_csv.schema();
+        let actual_columns: Vec<&str> = schema
+            .iter_names()
+            .take(expected_columns.len())
+            .map(|field| field.as_str())
+            .collect();
+        println!("Actual column names: {:?}", actual_columns);
+        if actual_columns == expected_columns {
+            println!("Identical columns")
         }
+
+        let df_filtered = df_csv
+            .lazy()
+            .filter(col("Currency").eq(lit(currency.to_uppercase().as_str())))
+            .filter(col("Balance Impact").eq(lit("Debit")))
+            .select([cols(select_columns)])
+            .collect()?;
+
+        const DEFAULT_COLUMN_VALUE: AnyValue = AnyValue::String("");
+        for row_index in 0..df_filtered.height() {
+            let mut row = Row::new(vec![DEFAULT_COLUMN_VALUE; expected_columns.len()]);
+
+            // https://stackoverflow.com/questions/72440403/iterate-over-rows-polars-rust
+            df_filtered.get_row_amortized(row_index, &mut row)?;
+
+            let gregorian_days: i32 = row.0[0].try_extract()?;
+            let naive_date =
+                NaiveDate::from_num_days_from_ce_opt(gregorian_days + EPOCH_DAYS_FROM_CE).unwrap();
+            let transaction = CsvTransaction {
+                date: naive_date,
+                source: source.to_string(),
+                currency: row.0[1].to_string(),
+                amount: row.0[2].to_string(),
+                transaction_type: row.0[3].to_string(),
+                payee: row.0[4].to_string(),
+            };
+            currency_transactions.push(transaction);
+        }
+        // TODO: Continue from here
+
+        // if header_contains_string(&header, N26Transaction::identification_column()) {
+        //     for result in rdr.records() {
+        //         let record = result?;
+        //
+        //         let n26_transaction = record.deserialize::<N26Transaction>(None)?;
+        //         if n26_transaction.valid(&currency) {
+        //             currency_transactions.push(n26_transaction.to_csv_transaction());
+        //         }
+        //     }
+        // } else if header_contains_string(&header, PayPalTransaction::identification_column()) {
+        //     for result in rdr.records() {
+        //         let record = result?;
+        //
+        //         let paypal_transaction = record.deserialize::<PayPalTransaction>(None)?;
+        //         if paypal_transaction.valid(&currency) {
+        //             currency_transactions.push(paypal_transaction.to_csv_transaction());
+        //         }
+        //     }
+        // } else {
+        //     eprintln!("This file is not a N26 CSV.")
+        // }
     }
 
     // Group transactions by year and month

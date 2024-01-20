@@ -67,6 +67,7 @@ impl BaseTransaction for N26Transaction {
         };
         CsvTransaction {
             date: self.date(),
+            source: "N26".to_string(),
             currency: self.currency.clone(),
             amount,
             transaction_type: self.transaction_type.clone(),
@@ -169,6 +170,7 @@ impl BaseTransaction for PayPalTransaction {
         "Shipping and Handling Amount"
     }
 
+    // TODO: this method is probably not necessary anymore, now that we have data frame filters
     fn valid(&self, currency: &str) -> bool {
         self.currency.to_uppercase() == currency.to_uppercase() && !self.name.is_empty()
     }
@@ -176,6 +178,7 @@ impl BaseTransaction for PayPalTransaction {
     fn to_csv_transaction(&self) -> CsvTransaction {
         CsvTransaction {
             date: self.date(),
+            source: "PayPal".to_string(),
             currency: self.currency.clone(),
             amount: self.gross_str.clone(),
             transaction_type: self.type_.clone(),
@@ -193,10 +196,11 @@ impl PayPalTransaction {
 #[derive(PartialEq, Eq)]
 pub struct CsvTransaction {
     pub date: NaiveDate,
-    currency: String,
-    amount: String,
-    transaction_type: String,
-    payee: String,
+    pub source: String,
+    pub currency: String,
+    pub amount: String,
+    pub transaction_type: String,
+    pub payee: String,
 }
 
 impl PartialOrd for CsvTransaction {
@@ -227,8 +231,8 @@ impl fmt::Display for CsvTransaction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Date={} {}={} Type={} Payee={}",
-            self.date, self.currency, self.amount, self.transaction_type, self.payee,
+            "Date={} {} {} {} to {} ({})",
+            self.date, self.source, self.currency, self.amount, self.payee, self.transaction_type,
         )
     }
 }
