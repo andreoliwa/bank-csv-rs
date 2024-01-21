@@ -165,7 +165,7 @@ impl fmt::Display for CsvOutputRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Date={} {} {} {} to {} ({})",
+            "{} [{}] {} {} paid to {} ({})",
             self.date, self.source, self.currency, self.amount, self.payee, self.transaction_type,
         )
     }
