@@ -86,7 +86,8 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, Dat
         lazy_frame = cloned_df
             .lazy()
             .filter(col("Currency").eq(lit(upper_currency.as_str())))
-            .filter(col("Balance Impact").eq(lit("Debit")));
+            .filter(col("Balance Impact").eq(lit("Debit")))
+            .filter(col("Type").neq(lit("General Currency Conversion")));
     } else if first_columns == PAYPAL_COLUMNS_OLD {
         source = Source::PayPal;
         columns_to_select = ["Date", "Currency", "Gross", "Description", "Name"];
