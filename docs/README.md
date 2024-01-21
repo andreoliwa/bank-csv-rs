@@ -2,9 +2,26 @@
 
 Handle CSV files from a few German banks and PayPal.
 
+## Supported CSV files
+
+| Bank                                     | Where to get the CSV                                                                      |
+|------------------------------------------|-------------------------------------------------------------------------------------------|
+| [N26](https://n26.com/)                  | [Downloads](https://app.n26.com/downloads)                                                |
+| [PayPal](https://www.paypal.com/)        | [Activity report](https://www.paypal.com/reports/dlog)                                    |
+| (coming soon) [DKB](https://www.dkb.de/) | [DKB Konto Umsätze](https://www.ib.dkb.de/banking/finanzstatus/kontoumsaetze?$event=init) | 
+
+PayPal has (as I found so far) 2 different CSV file formats.
+
+This project uses [polars](https://github.com/pola-rs/polars) to read CSV files directly by column names.
+It's a heavier dependency, but it's easier to support different CSV formats without being super strict about column order and presence.
+
 ## Installation
 
-Clone the project and run `make install` to install the package.
+Install directly from GitHub:
+
+```bash
+cargo install --git https://github.com/andreoliwa/bank-csv-rs 
+```
 
 This package is not yet published on [crates.io](https://crates.io/).
 
@@ -20,18 +37,20 @@ This will generate `Transactions*.csv` files in the `~/Downloads` directory, wit
 
 Type `bank-csv --help` for more details.
 
-## Supported CSV files
+```bash
+❯ bank-csv --help
+Handle CSV files from a few German banks and PayPal
 
-| Bank                                     | Where to get the CSV                                                                      |
-|------------------------------------------|-------------------------------------------------------------------------------------------|
-| [N26](https://n26.com/)                  | [Downloads](https://app.n26.com/downloads)                                                |
-| [PayPal](https://www.paypal.com/)        | [Activity report](https://www.paypal.com/reports/dlog)                                    |
-| (coming soon) [DKB](https://www.dkb.de/) | [DKB Konto Umsätze](https://www.ib.dkb.de/banking/finanzstatus/kontoumsaetze?$event=init) | 
+Usage: bank-csv <COMMAND>
 
-PayPal has (as I found so far) 2 different CSV file formats.
+Commands:
+  merge  Merge one or more bank CSV files and split them into multiple files, one for each month
+  help   Print this message or the help of the given subcommand(s)
 
-This project uses [polars](https://github.com/pola-rs/polars) to read CSV files directly by column names.
-It's a heavier dependency, but it's easier to support different CSV formats without being super strict about column order and presence.  
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
+```
 
 ## Roadmap (TODO)
 
