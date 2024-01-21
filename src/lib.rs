@@ -4,7 +4,10 @@ use polars::prelude::*;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
+use std::fs::File;
+use std::io::{self, BufRead};
+use std::path::Path;
 
 pub enum CsvSource {
     N26,
@@ -32,6 +35,36 @@ const N26_COLUMNS: [&str; NUM_COLUMNS] = [
     "Transaction type",
     "Payment reference",
 ];
+
+pub fn detect_separator(file_path: &Path) -> io::Result<u8> {
+    let file = File::open(file_path)?;
+    let reader = io::BufReader::new(file);
+    if let Some(first_line) = reader.lines().next() {
+        let line = first_line?;
+
+        // Search for the separator character
+        if line.contains(';') {
+            Ok(b';')
+        } else if line.contains(',') {
+            Ok(b',')
+        } else if line.contains('\t') {
+            Ok(b'\t')
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "{}: No separator found in the first line",
+                    file_path.display()
+                ),
+            ))
+        }
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{}: Error reading the first line", file_path.display()),
+        ))
+    }
+}
 
 pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (CsvSource, DataFrame) {
     let schema = df.schema();

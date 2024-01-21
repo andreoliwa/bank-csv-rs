@@ -1,4 +1,4 @@
-use bank_csv::{filter_data_frame, CsvTransaction, NUM_COLUMNS};
+use bank_csv::{detect_separator, filter_data_frame, CsvTransaction, NUM_COLUMNS};
 use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
 use csv::Writer;
@@ -54,11 +54,20 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
             upper_currency
         );
 
-        let df_csv = CsvReader::from_path(csv_file_path.clone())?
-            .has_header(true)
-            .with_try_parse_dates(true)
-            .finish()?;
-
+        let df_csv: DataFrame;
+        match detect_separator(csv_file_path.as_path()) {
+            Ok(separator) => {
+                df_csv = CsvReader::from_path(csv_file_path.clone())?
+                    .has_header(true)
+                    .with_try_parse_dates(true)
+                    .with_separator(separator)
+                    .finish()?;
+            }
+            Err(err) => {
+                eprintln!("{}", err);
+                continue;
+            }
+        };
         let (source, df_filtered) = filter_data_frame(&df_csv, upper_currency.clone());
 
         const DEFAULT_COLUMN_VALUE: AnyValue = AnyValue::String("");
