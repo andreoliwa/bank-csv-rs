@@ -30,10 +30,16 @@ This package is not yet published on [crates.io](https://crates.io/).
 Merge CSV files from a few German banks and PayPal into a single CSV file.
 
 ```bash
-bank-csv merge ~/Downloads/import-*.csv
+bank-csv merge /path/to/import-*.csv
 ```
 
-This will generate `Transactions*.csv` files in the `~/Downloads` directory, with transactions sorted by date and grouped by month.
+`EUR` transactions are filtered by default. You can choose a different currency with the `--currency` option.
+
+```bash
+bank-csv merge -c USD /path/to/import-*.csv
+```
+
+This will generate `bank-csv-transactions*.csv` files in the download directory of the computer, with transactions sorted by date and grouped by month.
 
 Type `bank-csv --help` for more details.
 

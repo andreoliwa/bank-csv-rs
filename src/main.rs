@@ -27,6 +27,9 @@ enum Commands {
         /// Currency to filter (case insensitive)
         #[arg(short, long, default_value = "EUR")]
         currency: String,
+        /// Output directory to generate the CSV files. Default: download directory
+        #[arg(short, long, value_hint = clap::ValueHint::DirPath)]
+        output_dir: Option<PathBuf>,
     },
 }
 
@@ -36,17 +39,52 @@ fn main() -> Result<(), Box<dyn Error>> {
         Commands::Merge {
             csv_file_paths,
             currency,
-        } => merge_command(csv_file_paths, currency),
+            output_dir,
+        } => merge_command(csv_file_paths, currency, output_dir),
     }
 }
 
-fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), Box<dyn Error>> {
-    let mut first_file: Option<PathBuf> = None;
+fn merge_command(
+    csv_file_paths: Vec<PathBuf>,
+    currency: String,
+    original_output_dir: Option<PathBuf>,
+) -> Result<(), Box<dyn Error>> {
+    let output_dir: PathBuf;
+    if original_output_dir.is_none() {
+        output_dir = dirs::download_dir().unwrap();
+    } else {
+        output_dir = PathBuf::from(
+            shellexpand::tilde(&original_output_dir.unwrap().to_string_lossy()).to_string(),
+        );
+    }
+
+    if !output_dir.exists() {
+        return Err(format!(
+            "Output directory {} does not exist",
+            output_dir.as_path().display()
+        )
+        .into());
+    }
+    if !output_dir.is_dir() {
+        return Err(format!(
+            "Output directory {} is not a directory",
+            output_dir.as_path().display()
+        )
+        .into());
+    }
+
     let mut currency_transactions: SortedSet<CsvOutputRow> = SortedSet::new();
     let upper_currency = currency.to_uppercase();
-    for csv_file_path in csv_file_paths {
-        if first_file.is_none() {
-            first_file = Some(csv_file_path.clone());
+    for original_csv_file_path in csv_file_paths {
+        let csv_file_path = PathBuf::from(
+            shellexpand::tilde(&original_csv_file_path.to_string_lossy()).to_string(),
+        );
+        if !csv_file_path.exists() {
+            eprintln!(
+                "CSV file {} does not exist",
+                csv_file_path.as_path().display()
+            );
+            continue;
         }
         eprintln!(
             "Parsing CSV file {} filtered by currency {}",
@@ -57,7 +95,7 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
         let df_csv: DataFrame;
         match detect_separator(csv_file_path.as_path()) {
             Ok(separator) => {
-                df_csv = CsvReader::from_path(csv_file_path.clone())?
+                df_csv = CsvReader::from_path(csv_file_path)?
                     .has_header(true)
                     .with_try_parse_dates(true)
                     .with_separator(separator)
@@ -120,14 +158,11 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
     for &(year, month) in &sorted_keys {
         let transactions = transaction_map.get(&(*year, *month)).unwrap();
         let year_month_filename = format!(
-            "Transactions-{}-{:04}-{:02}.csv",
+            "bank-csv-transactions-{}-{:04}-{:02}.csv",
             upper_currency, year, month
         );
-        // Save new CSV files in the same dir of the first file
-        let new_path = first_file
-            .as_ref()
-            .expect("There is no first file")
-            .with_file_name(year_month_filename);
+        let mut new_path = output_dir.clone();
+        new_path.push(year_month_filename);
         eprintln!("\nWriting output file {}", new_path.as_path().display());
         let mut writer = Writer::from_path(new_path)?;
         writer.write_record(&CsvOutputRow::header())?;
