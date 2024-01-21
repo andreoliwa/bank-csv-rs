@@ -1,4 +1,4 @@
-use bank_csv::{detect_separator, filter_data_frame, CsvTransaction, NUM_COLUMNS};
+use bank_csv::{detect_separator, filter_data_frame, CsvOutputRow, NUM_COLUMNS};
 use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
 use csv::Writer;
@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), Box<dyn Error>> {
     let mut first_file: Option<PathBuf> = None;
-    let mut currency_transactions: SortedSet<CsvTransaction> = SortedSet::new();
+    let mut currency_transactions: SortedSet<CsvOutputRow> = SortedSet::new();
     let upper_currency = currency.to_uppercase();
     for csv_file_path in csv_file_paths {
         if first_file.is_none() {
@@ -89,7 +89,7 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
                     naive_date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?;
                 }
             }
-            let transaction = CsvTransaction::new(
+            let transaction = CsvOutputRow::new(
                 naive_date,
                 source.to_string(),
                 row.0[1].to_string(),
@@ -99,33 +99,10 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
             );
             currency_transactions.push(transaction);
         }
-        // TODO: Continue from here
-
-        // if header_contains_string(&header, N26Transaction::identification_column()) {
-        //     for result in rdr.records() {
-        //         let record = result?;
-        //
-        //         let n26_transaction = record.deserialize::<N26Transaction>(None)?;
-        //         if n26_transaction.valid(&currency) {
-        //             currency_transactions.push(n26_transaction.to_csv_transaction());
-        //         }
-        //     }
-        // } else if header_contains_string(&header, PayPalTransaction::identification_column()) {
-        //     for result in rdr.records() {
-        //         let record = result?;
-        //
-        //         let paypal_transaction = record.deserialize::<PayPalTransaction>(None)?;
-        //         if paypal_transaction.valid(&currency) {
-        //             currency_transactions.push(paypal_transaction.to_csv_transaction());
-        //         }
-        //     }
-        // } else {
-        //     eprintln!("This file is not a N26 CSV.")
-        // }
     }
 
     // Group transactions by year and month
-    let mut transaction_map: HashMap<(i32, u32), SortedSet<&CsvTransaction>> = HashMap::new();
+    let mut transaction_map: HashMap<(i32, u32), SortedSet<&CsvOutputRow>> = HashMap::new();
     for transaction in currency_transactions.iter() {
         let date = transaction.date;
         let year = date.year();
@@ -153,7 +130,7 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
             .with_file_name(year_month_filename);
         eprintln!("\nWriting output file {}", new_path.as_path().display());
         let mut writer = Writer::from_path(new_path)?;
-        writer.write_record(&CsvTransaction::header())?;
+        writer.write_record(&CsvOutputRow::header())?;
         for trn in transactions.iter() {
             println!("{}", trn);
             writer.write_record(&trn.to_record())?;

@@ -1,29 +1,14 @@
 use chrono::NaiveDate;
 use csv::StringRecord;
 use polars::prelude::*;
-use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-pub enum CsvSource {
-    N26,
-    PayPal,
-}
-
-impl Display for CsvSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let str = match self {
-            CsvSource::N26 => "N26".to_string(),
-            CsvSource::PayPal => "PayPal".to_string(),
-        };
-        write!(f, "{}", str)
-    }
-}
-
+const DOUBLE_QUOTE: char = '"';
 pub const NUM_COLUMNS: usize = 5;
 const PAYPAL_COLUMNS: [&str; NUM_COLUMNS] = ["Date", "Time", "TimeZone", "Name", "Type"];
 const PAYPAL_COLUMNS_OLD: [&str; NUM_COLUMNS] =
@@ -35,6 +20,21 @@ const N26_COLUMNS: [&str; NUM_COLUMNS] = [
     "Transaction type",
     "Payment reference",
 ];
+
+pub enum Source {
+    N26,
+    PayPal,
+}
+
+impl Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            Source::N26 => "N26".to_string(),
+            Source::PayPal => "PayPal".to_string(),
+        };
+        write!(f, "{}", str)
+    }
+}
 
 pub fn detect_separator(file_path: &Path) -> io::Result<u8> {
     let file = File::open(file_path)?;
@@ -66,7 +66,7 @@ pub fn detect_separator(file_path: &Path) -> io::Result<u8> {
     }
 }
 
-pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (CsvSource, DataFrame) {
+pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, DataFrame) {
     let schema = df.schema();
     let first_columns: Vec<&str> = schema
         .iter_names()
@@ -75,26 +75,27 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (CsvSource, 
         .collect();
 
     let columns_to_select: [&str; NUM_COLUMNS];
-    let source: CsvSource;
+    let source: Source;
     let lazy_frame: LazyFrame;
     let cloned_df = df.clone();
 
+    // TODO: move these configs to separate structs or enums instead of "if" statements
     if first_columns == PAYPAL_COLUMNS {
-        source = CsvSource::PayPal;
+        source = Source::PayPal;
         columns_to_select = ["Date", "Currency", "Gross", "Type", "Name"];
         lazy_frame = cloned_df
             .lazy()
             .filter(col("Currency").eq(lit(upper_currency.as_str())))
             .filter(col("Balance Impact").eq(lit("Debit")));
     } else if first_columns == PAYPAL_COLUMNS_OLD {
-        source = CsvSource::PayPal;
+        source = Source::PayPal;
         columns_to_select = ["Date", "Currency", "Gross", "Description", "Name"];
         lazy_frame = cloned_df
             .lazy()
             .filter(col("Currency").eq(lit(upper_currency.as_str())))
             .filter(col("Description").neq(lit("General Currency Conversion")));
     } else if first_columns == N26_COLUMNS {
-        source = CsvSource::N26;
+        source = Source::N26;
         let amount_column = if upper_currency == "EUR" {
             "Amount (EUR)"
         } else {
@@ -126,197 +127,8 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (CsvSource, 
     )
 }
 
-pub trait BaseTransaction {
-    fn identification_column() -> &'static str;
-    fn valid(&self, currency: &str) -> bool;
-    fn to_csv_transaction(&self) -> CsvTransaction;
-}
-
-#[derive(Debug, Deserialize)]
-pub struct N26Transaction {
-    #[serde(rename = "Date")]
-    date_str: String,
-    #[serde(rename = "Payee")]
-    payee: String,
-    #[serde(rename = "Account number")]
-    account_number: String,
-    #[serde(rename = "Transaction type")]
-    transaction_type: String,
-    #[serde(rename = "Payment reference")]
-    payment_reference: String,
-    #[serde(rename = "Amount (EUR)")]
-    eur_amount_str: String,
-    #[serde(rename = "Amount (Foreign Currency)")]
-    foreign_amount_str: String,
-    #[serde(rename = "Type Foreign Currency")]
-    currency: String,
-    #[serde(rename = "Exchange Rate")]
-    exchange_rate_str: String,
-}
-
-impl fmt::Display for N26Transaction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Date={} Payee={} Account={} Type={} Reference={} EUR={} {}={} Exchange={}",
-            self.date_str,
-            self.payee,
-            self.account_number,
-            self.transaction_type,
-            self.payment_reference,
-            self.eur_amount(),
-            self.currency,
-            self.foreign_amount(),
-            self.exchange_rate_str
-        )
-    }
-}
-
-impl BaseTransaction for N26Transaction {
-    fn identification_column() -> &'static str {
-        "Amount (Foreign Currency)"
-    }
-
-    fn valid(&self, currency: &str) -> bool {
-        self.currency.to_uppercase() == currency.to_uppercase()
-    }
-
-    fn to_csv_transaction(&self) -> CsvTransaction {
-        let amount = if self.currency.to_uppercase() == "EUR" {
-            self.eur_amount_str.clone()
-        } else {
-            self.foreign_amount_str.clone()
-        };
-        CsvTransaction {
-            date: self.date(),
-            source: "N26".to_string(),
-            currency: self.currency.clone(),
-            amount,
-            transaction_type: self.transaction_type.clone(),
-            payee: self.payee.clone(),
-        }
-    }
-}
-
-impl N26Transaction {
-    fn date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.date_str, "%Y-%m-%d").expect("Invalid date string")
-    }
-
-    fn eur_amount(&self) -> f64 {
-        self.eur_amount_str.parse().expect("Invalid amount format")
-    }
-
-    fn foreign_amount(&self) -> f64 {
-        self.foreign_amount_str
-            .parse()
-            .expect("Invalid amount format")
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PayPalTransaction {
-    #[serde(rename = "Date")]
-    date_str: String,
-    #[serde(rename = "Time")]
-    time_str: String,
-    #[serde(rename = "Time Zone")]
-    time_zone: String,
-    // TODO: PayPal has changed the CSV columns... validate and accept multiple CSV formats
-    // #[serde(rename = "Description")]
-    // description: String,
-    #[serde(rename = "Name")]
-    name: String,
-    #[serde(rename = "Type")]
-    type_: String,
-    #[serde(rename = "Status")]
-    status: String,
-    #[serde(rename = "Currency")]
-    currency: String,
-    #[serde(rename = "Gross")]
-    gross_str: String,
-    #[serde(rename = "Fee")]
-    fee_str: String,
-    #[serde(rename = "Net")]
-    net_str: String,
-    #[serde(rename = "Balance")]
-    balance_str: String,
-    #[serde(rename = "Transaction ID")]
-    transaction_id: String,
-    #[serde(rename = "From Email Address")]
-    from_email_address: String,
-    #[serde(rename = "Bank Name")]
-    bank_name: String,
-    #[serde(rename = "Bank Account")]
-    bank_account: String,
-    #[serde(rename = "Shipping and Handling Amount")]
-    shipping_and_handling_amount_str: String,
-    #[serde(rename = "Sales Tax")]
-    sales_tax_str: String,
-    #[serde(rename = "Invoice ID")]
-    invoice_id: String,
-    #[serde(rename = "Reference Txn ID")]
-    reference_txn_id: String,
-}
-
-impl fmt::Display for PayPalTransaction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "Date={} Time={} Timezone={} Currency={} Gross={} Fee={} Net={} Balance={} TransactionID={}\
-             From={} Name={} BankName={} BankAccount={} Shipping={} Tax={} Invoice={} Reference={} Status={}",
-            self.date_str,
-            self.time_str,
-            self.time_zone,
-            self.currency,
-            self.gross_str,
-            self.fee_str,
-            self.net_str,
-            self.balance_str,
-            self.transaction_id,
-            self.from_email_address,
-            self.name,
-            self.bank_name,
-            self.bank_account,
-            self.shipping_and_handling_amount_str,
-            self.sales_tax_str,
-            self.invoice_id,
-            self.reference_txn_id,
-            self.status,
-        )
-    }
-}
-
-impl BaseTransaction for PayPalTransaction {
-    fn identification_column() -> &'static str {
-        "Shipping and Handling Amount"
-    }
-
-    // TODO: this method is probably not necessary anymore, now that we have data frame filters
-    fn valid(&self, currency: &str) -> bool {
-        self.currency.to_uppercase() == currency.to_uppercase() && !self.name.is_empty()
-    }
-
-    fn to_csv_transaction(&self) -> CsvTransaction {
-        CsvTransaction {
-            date: self.date(),
-            source: "PayPal".to_string(),
-            currency: self.currency.clone(),
-            amount: self.gross_str.clone(),
-            transaction_type: self.type_.clone(),
-            payee: self.name.clone(),
-        }
-    }
-}
-
-impl PayPalTransaction {
-    fn date(&self) -> NaiveDate {
-        NaiveDate::parse_from_str(&self.date_str, "%d.%m.%Y").expect("Invalid date string")
-    }
-}
-
 #[derive(PartialEq, Eq)]
-pub struct CsvTransaction {
+pub struct CsvOutputRow {
     pub date: NaiveDate,
     pub source: String,
     pub currency: String,
@@ -325,13 +137,13 @@ pub struct CsvTransaction {
     pub payee: String,
 }
 
-impl PartialOrd for CsvTransaction {
+impl PartialOrd for CsvOutputRow {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for CsvTransaction {
+impl Ord for CsvOutputRow {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.date.cmp(&other.date) {
             Ordering::Equal => match self.currency.cmp(&other.currency) {
@@ -349,7 +161,7 @@ impl Ord for CsvTransaction {
     }
 }
 
-impl fmt::Display for CsvTransaction {
+impl fmt::Display for CsvOutputRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -359,7 +171,6 @@ impl fmt::Display for CsvTransaction {
     }
 }
 
-const DOUBLE_QUOTE: char = '"';
 fn strip_quotes(s: String) -> String {
     s.strip_prefix(DOUBLE_QUOTE)
         .unwrap_or(s.as_str())
@@ -368,7 +179,7 @@ fn strip_quotes(s: String) -> String {
         .to_string()
 }
 
-impl CsvTransaction {
+impl CsvOutputRow {
     pub fn new(
         date: NaiveDate,
         source: String,
@@ -413,45 +224,3 @@ pub fn header_contains_string(header: &StringRecord, pattern: &str) -> bool {
     }
     false
 }
-
-// TODO: try harder; this fails with:
-//  ❯ cargo fmt && cargo build
-//     Compiling money v0.1.0 (/Users/aa/Code/money)
-//  error[E0277]: the trait bound `T: _::_serde::Deserialize<'_>` is not satisfied
-//     --> src/main.rs:389:51
-//      |
-//  389 |         let transaction: T = record.deserialize::<T>(None)?;
-//      |                                                   ^ the trait `_::_serde::Deserialize<'_>` is not implemented for `T`
-//      |
-//  note: required by a bound in `StringRecord::deserialize`
-//     --> /Users/aa/.cargo/registry/src/github.com-1ecc6299db9ec823/csv-1.2.1/src/string_record.rs:292:32
-//      |
-//  292 |     pub fn deserialize<'de, D: Deserialize<'de>>(
-//      |                                ^^^^^^^^^^^^^^^^ required by this bound in `StringRecord::deserialize`
-//  help: consider further restricting this bound
-//      |
-//  376 | fn parse_csv_as<T: BaseTransaction + _::_serde::Deserialize<'_>>(
-//      |                                    ++++++++++++++++++++++++++++
-//  For more information about this error, try `rustc --explain E0277`.
-//  error: could not compile `money` due to previous error
-
-// fn parse_csv_as<T: BaseTransaction>(
-//     currency: &String,
-//     currency_transactions: &mut SortedSet<CsvTransaction>,
-//     rdr: &mut Reader<File>,
-//     header: &StringRecord,
-// ) -> Result<bool, Box<dyn Error>> {
-//     if !header_contains_string(&header, T::identification_column()) {
-//         return Ok(false);
-//     }
-//
-//     for result in rdr.records() {
-//         let record = result?;
-//
-//         let transaction: T = record.deserialize::<T>(None)?;
-//         if transaction.valid(&currency) {
-//             currency_transactions.push(transaction.to_csv_transaction());
-//         }
-//     }
-//     Ok(true)
-// }
