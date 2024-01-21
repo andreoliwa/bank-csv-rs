@@ -1,8 +1,97 @@
 use chrono::NaiveDate;
 use csv::StringRecord;
+use polars::prelude::*;
 use serde::Deserialize;
 use std::cmp::Ordering;
 use std::fmt;
+use std::fmt::Display;
+
+pub enum CsvSource {
+    N26,
+    PayPal,
+}
+
+impl Display for CsvSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            CsvSource::N26 => "N26".to_string(),
+            CsvSource::PayPal => "PayPal".to_string(),
+        };
+        write!(f, "{}", str)
+    }
+}
+
+pub const NUM_COLUMNS: usize = 5;
+const PAYPAL_COLUMNS: [&str; NUM_COLUMNS] = ["Date", "Time", "TimeZone", "Name", "Type"];
+const PAYPAL_COLUMNS_OLD: [&str; NUM_COLUMNS] =
+    ["Date", "Time", "Time Zone", "Description", "Currency"];
+const N26_COLUMNS: [&str; NUM_COLUMNS] = [
+    "Date",
+    "Payee",
+    "Account number",
+    "Transaction type",
+    "Payment reference",
+];
+
+pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (CsvSource, DataFrame) {
+    let schema = df.schema();
+    let first_columns: Vec<&str> = schema
+        .iter_names()
+        .take(NUM_COLUMNS)
+        .map(|field| field.as_str())
+        .collect();
+
+    let columns_to_select: [&str; NUM_COLUMNS];
+    let source: CsvSource;
+    let lazy_frame: LazyFrame;
+    let cloned_df = df.clone();
+
+    if first_columns == PAYPAL_COLUMNS {
+        source = CsvSource::PayPal;
+        columns_to_select = ["Date", "Currency", "Gross", "Type", "Name"];
+        lazy_frame = cloned_df
+            .lazy()
+            .filter(col("Currency").eq(lit(upper_currency.as_str())))
+            .filter(col("Balance Impact").eq(lit("Debit")));
+    } else if first_columns == PAYPAL_COLUMNS_OLD {
+        source = CsvSource::PayPal;
+        columns_to_select = ["Date", "Currency", "Gross", "Description", "Name"];
+        lazy_frame = cloned_df
+            .lazy()
+            .filter(col("Currency").eq(lit(upper_currency.as_str())))
+            .filter(col("Description").neq(lit("General Currency Conversion")));
+    } else if first_columns == N26_COLUMNS {
+        source = CsvSource::N26;
+        let amount_column = if upper_currency == "EUR" {
+            "Amount (EUR)"
+        } else {
+            "Amount (Foreign Currency)"
+        };
+        columns_to_select = [
+            "Date",
+            "Type Foreign Currency",
+            amount_column,
+            "Transaction type",
+            "Payee",
+        ];
+        lazy_frame = cloned_df
+            .lazy()
+            .filter(col("Type Foreign Currency").eq(lit(upper_currency.as_str())))
+    } else {
+        panic!(
+            "Unknown CSV format. These are the first columns: {:?}",
+            first_columns
+        );
+    }
+
+    (
+        source,
+        lazy_frame
+            .select([cols(columns_to_select)])
+            .collect()
+            .unwrap(),
+    )
+}
 
 pub trait BaseTransaction {
     fn identification_column() -> &'static str;
@@ -237,7 +326,33 @@ impl fmt::Display for CsvTransaction {
     }
 }
 
+const DOUBLE_QUOTE: char = '"';
+fn strip_quotes(s: String) -> String {
+    s.strip_prefix(DOUBLE_QUOTE)
+        .unwrap_or(s.as_str())
+        .strip_suffix(DOUBLE_QUOTE)
+        .unwrap_or(s.as_str())
+        .to_string()
+}
+
 impl CsvTransaction {
+    pub fn new(
+        date: NaiveDate,
+        source: String,
+        currency: String,
+        amount: String,
+        transaction_type: String,
+        payee: String,
+    ) -> Self {
+        Self {
+            date,
+            source,
+            currency: strip_quotes(currency),
+            amount: strip_quotes(amount),
+            transaction_type: strip_quotes(transaction_type),
+            payee: strip_quotes(payee),
+        }
+    }
     pub fn header() -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field("Date");

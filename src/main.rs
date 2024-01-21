@@ -1,4 +1,4 @@
-use bank_csv::CsvTransaction;
+use bank_csv::{filter_data_frame, CsvTransaction, NUM_COLUMNS};
 use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
 use csv::Writer;
@@ -43,6 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), Box<dyn Error>> {
     let mut first_file: Option<PathBuf> = None;
     let mut currency_transactions: SortedSet<CsvTransaction> = SortedSet::new();
+    let upper_currency = currency.to_uppercase();
     for csv_file_path in csv_file_paths {
         if first_file.is_none() {
             first_file = Some(csv_file_path.clone());
@@ -50,7 +51,7 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
         eprintln!(
             "Parsing CSV file {} filtered by currency {}",
             csv_file_path.as_path().display(),
-            currency
+            upper_currency
         );
 
         let df_csv = CsvReader::from_path(csv_file_path.clone())?
@@ -58,47 +59,35 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
             .with_try_parse_dates(true)
             .finish()?;
 
-        // PayPal configs
-        let expected_columns = ["Date", "Time", "TimeZone", "Name", "Type"];
-        let select_columns = ["Date", "Currency", "Gross", "Type", "Name"];
-        let source = "PayPal";
-
-        let schema = df_csv.schema();
-        let actual_columns: Vec<&str> = schema
-            .iter_names()
-            .take(expected_columns.len())
-            .map(|field| field.as_str())
-            .collect();
-        println!("Actual column names: {:?}", actual_columns);
-        if actual_columns == expected_columns {
-            println!("Identical columns")
-        }
-
-        let df_filtered = df_csv
-            .lazy()
-            .filter(col("Currency").eq(lit(currency.to_uppercase().as_str())))
-            .filter(col("Balance Impact").eq(lit("Debit")))
-            .select([cols(select_columns)])
-            .collect()?;
+        let (source, df_filtered) = filter_data_frame(&df_csv, upper_currency.clone());
 
         const DEFAULT_COLUMN_VALUE: AnyValue = AnyValue::String("");
+        let mut row = Row::new(vec![DEFAULT_COLUMN_VALUE; NUM_COLUMNS]);
         for row_index in 0..df_filtered.height() {
-            let mut row = Row::new(vec![DEFAULT_COLUMN_VALUE; expected_columns.len()]);
-
             // https://stackoverflow.com/questions/72440403/iterate-over-rows-polars-rust
             df_filtered.get_row_amortized(row_index, &mut row)?;
 
-            let gregorian_days: i32 = row.0[0].try_extract()?;
-            let naive_date =
-                NaiveDate::from_num_days_from_ce_opt(gregorian_days + EPOCH_DAYS_FROM_CE).unwrap();
-            let transaction = CsvTransaction {
-                date: naive_date,
-                source: source.to_string(),
-                currency: row.0[1].to_string(),
-                amount: row.0[2].to_string(),
-                transaction_type: row.0[3].to_string(),
-                payee: row.0[4].to_string(),
-            };
+            let naive_date: NaiveDate;
+            match row.0[0].try_extract::<i32>() {
+                Ok(gregorian_days) => {
+                    naive_date =
+                        NaiveDate::from_num_days_from_ce_opt(gregorian_days + EPOCH_DAYS_FROM_CE)
+                            .unwrap();
+                }
+                // Some CSVs hve the date in the German format
+                Err(_) => {
+                    let date_str = row.0[0].get_str().unwrap();
+                    naive_date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?;
+                }
+            }
+            let transaction = CsvTransaction::new(
+                naive_date,
+                source.to_string(),
+                row.0[1].to_string(),
+                row.0[2].to_string(),
+                row.0[3].to_string(),
+                row.0[4].to_string(),
+            );
             currency_transactions.push(transaction);
         }
         // TODO: Continue from here
@@ -146,9 +135,7 @@ fn merge_command(csv_file_paths: Vec<PathBuf>, currency: String) -> Result<(), B
         let transactions = transaction_map.get(&(*year, *month)).unwrap();
         let year_month_filename = format!(
             "Transactions-{}-{:04}-{:02}.csv",
-            currency.to_uppercase(),
-            year,
-            month
+            upper_currency, year, month
         );
         // Save new CSV files in the same dir of the first file
         let new_path = first_file
