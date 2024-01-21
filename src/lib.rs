@@ -201,6 +201,7 @@ impl CsvOutputRow {
     pub fn header() -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field("Date");
+        record.push_field("Source");
         record.push_field("Amount");
         record.push_field("Type");
         record.push_field("Payee");
@@ -210,6 +211,7 @@ impl CsvOutputRow {
     pub fn to_record(&self) -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field(&self.date.format("%Y-%m-%d").to_string());
+        record.push_field(&self.source);
         record.push_field(&self.amount);
         record.push_field(&self.transaction_type);
         record.push_field(&self.payee);
