@@ -8,7 +8,9 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-const DOUBLE_QUOTE: char = '"';
+const CHAR_COMMA: &'static str = ",";
+const CHAR_DOT: &'static str = ".";
+const CHAR_DOUBLE_QUOTE: char = '"';
 pub const NUM_COLUMNS: usize = 5;
 const PAYPAL_COLUMNS: [&str; NUM_COLUMNS] = ["Date", "Time", "TimeZone", "Name", "Type"];
 const PAYPAL_COLUMNS_OLD: [&str; NUM_COLUMNS] =
@@ -173,9 +175,9 @@ impl fmt::Display for CsvOutputRow {
 }
 
 fn strip_quotes(s: String) -> String {
-    s.strip_prefix(DOUBLE_QUOTE)
+    s.strip_prefix(CHAR_DOUBLE_QUOTE)
         .unwrap_or(s.as_str())
-        .strip_suffix(DOUBLE_QUOTE)
+        .strip_suffix(CHAR_DOUBLE_QUOTE)
         .unwrap_or(s.as_str())
         .to_string()
 }
@@ -193,7 +195,9 @@ impl CsvOutputRow {
             date,
             source,
             currency: strip_quotes(currency),
-            amount: strip_quotes(amount),
+            // "Numbers" on my macOS only understands commas as decimal separators;
+            // I can make it configurable if someone ever uses this crate
+            amount: strip_quotes(amount).replace(CHAR_DOT, CHAR_COMMA),
             transaction_type: strip_quotes(transaction_type),
             payee: strip_quotes(payee),
         }
