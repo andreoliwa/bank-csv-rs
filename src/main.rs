@@ -1,4 +1,7 @@
-use bank_csv::{detect_separator, filter_data_frame, CsvOutputRow, NUM_COLUMNS};
+use bank_csv::{
+    detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, CsvOutputRow, Source,
+    NUM_SELECT_COLUMNS,
+};
 use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
 use csv::Writer;
@@ -8,7 +11,8 @@ use polars::prelude::*;
 use sorted_vec::SortedSet;
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tempfile::NamedTempFile;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -49,15 +53,12 @@ fn merge_command(
     currency: String,
     original_output_dir: Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
-    let output_dir: PathBuf;
-    if original_output_dir.is_none() {
-        output_dir = dirs::download_dir().unwrap();
-    } else {
-        output_dir = PathBuf::from(
-            shellexpand::tilde(&original_output_dir.unwrap().to_string_lossy()).to_string(),
-        );
-    }
-
+    let output_dir: PathBuf = match original_output_dir {
+        None => dirs::download_dir().unwrap(),
+        Some(output_dir) => {
+            PathBuf::from(shellexpand::tilde(&output_dir.to_string_lossy()).to_string())
+        }
+    };
     if !output_dir.exists() {
         return Err(format!(
             "Output directory {} does not exist",
@@ -75,31 +76,38 @@ fn merge_command(
 
     let mut currency_transactions: SortedSet<CsvOutputRow> = SortedSet::new();
     let upper_currency = currency.to_uppercase();
-    for original_csv_file_path in csv_file_paths {
-        let csv_file_path = PathBuf::from(
-            shellexpand::tilde(&original_csv_file_path.to_string_lossy()).to_string(),
-        );
-        if !csv_file_path.exists() {
+    for original_path in csv_file_paths {
+        let expanded_path =
+            PathBuf::from(shellexpand::tilde(&original_path.to_string_lossy()).to_string());
+        if !expanded_path.exists() {
             eprintln!(
                 "CSV file {} does not exist",
-                csv_file_path.as_path().display()
+                expanded_path.as_path().display()
             );
             continue;
         }
         eprintln!(
             "Parsing CSV file {} filtered by currency {}",
-            csv_file_path.as_path().display(),
+            expanded_path.as_path().display(),
             upper_currency
         );
 
-        let df_csv: DataFrame;
-        match detect_separator(csv_file_path.as_path()) {
-            Ok(separator) => {
-                df_csv = CsvReader::from_path(csv_file_path)?
+        let df_csv = match detect_separator(expanded_path.as_path()) {
+            Ok((separator, source)) => {
+                let temp_file = NamedTempFile::new()?;
+                let modified_path: &Path = match source {
+                    Some(Source::DKB) => {
+                        dkb_edit_file(expanded_path.as_path(), &temp_file)?;
+                        temp_file.path()
+                    }
+                    _ => expanded_path.as_path(),
+                };
+                CsvReader::from_path(modified_path)?
                     .has_header(true)
                     .with_try_parse_dates(true)
                     .with_separator(separator)
-                    .finish()?;
+                    .truncate_ragged_lines(true)
+                    .finish()?
             }
             Err(err) => {
                 eprintln!("{}", err);
@@ -109,31 +117,59 @@ fn merge_command(
         let (source, df_filtered) = filter_data_frame(&df_csv, upper_currency.clone());
 
         const DEFAULT_COLUMN_VALUE: AnyValue = AnyValue::String("");
-        let mut row = Row::new(vec![DEFAULT_COLUMN_VALUE; NUM_COLUMNS]);
+        let mut row = Row::new(vec![DEFAULT_COLUMN_VALUE; NUM_SELECT_COLUMNS]);
         for row_index in 0..df_filtered.height() {
             // https://stackoverflow.com/questions/72440403/iterate-over-rows-polars-rust
             df_filtered.get_row_amortized(row_index, &mut row)?;
 
-            let naive_date: NaiveDate;
-            match row.0[0].try_extract::<i32>() {
+            let mut currency = row.0[1].to_string();
+            let mut amount = row.0[2].to_string();
+            let memo = row.0[5].to_string();
+            if source == Source::DKB {
+                if upper_currency == "EUR" {
+                    currency = "EUR".to_string();
+                } else {
+                    let search_pattern = format!("{} 1 Euro", upper_currency);
+                    if !memo.contains(&search_pattern) {
+                        continue;
+                    }
+                    currency = upper_currency.clone();
+                    match dkb_extract_amount(&currency, &memo) {
+                        None => {
+                            eprintln!("Could not extract amount from DKB memo: {}", memo.as_str());
+                            continue;
+                        }
+                        Some(extracted_amount) => {
+                            // Turn the amount into a negative number
+                            amount = if amount.contains('-') {
+                                format!("-{}", extracted_amount)
+                            } else {
+                                extracted_amount
+                            }
+                        }
+                    }
+                }
+            }
+
+            let naive_date = match row.0[0].try_extract::<i32>() {
                 Ok(gregorian_days) => {
-                    naive_date =
-                        NaiveDate::from_num_days_from_ce_opt(gregorian_days + EPOCH_DAYS_FROM_CE)
-                            .unwrap();
+                    NaiveDate::from_num_days_from_ce_opt(gregorian_days + EPOCH_DAYS_FROM_CE)
+                        .unwrap()
                 }
                 // Some CSVs hve the date in the German format
                 Err(_) => {
                     let date_str = row.0[0].get_str().unwrap();
-                    naive_date = NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?;
+                    NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?
                 }
-            }
+            };
             let transaction = CsvOutputRow::new(
                 naive_date,
                 source.to_string(),
-                row.0[1].to_string(),
-                row.0[2].to_string(),
+                currency,
+                amount,
                 row.0[3].to_string(),
                 row.0[4].to_string(),
+                memo,
             );
             currency_transactions.push(transaction);
         }
