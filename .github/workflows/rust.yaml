@@ -1,0 +1,33 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Adapted from https://github.com/marketplace/actions/skip-duplicate-actions
+  pre_job:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    # Map a step output to a job output
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@v5
+        with:
+          # https://github.com/marketplace/actions/skip-duplicate-actions#skip-concurrent-workflow-runs
+          concurrent_skipping: "same_content_newer"
+
+  build:
+    needs: pre_job
+    # Always run the build step when pushing to master
+    if: needs.pre_job.outputs.should_skip != 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
