@@ -1,18 +1,16 @@
-[package]
-name = "bank-csv"
-version = "0.1.0"
-edition = "2021"
-description = "Handle CSV files from a few German banks and PayPal"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-chrono = "0.4.31"
-clap = { version = "4.4.18", features = ["derive"] }
+chrono = "0.4.33"
+clap = {features = ["derive"], version = "4.4.18"}
 csv = "1.3.0"
 dirs = "5.0.1"
-polars = {version = "0.36.2", features = ["csv", "lazy", "rows", "dtype-date"]}
+encoding_rs = "0.8.33"
+polars = {features = ["csv", "dtype-date", "lazy", "rows"], version = "0.37.0"}
 shellexpand = "3.1.0"
 sorted-vec = "0.8.3"
 tempfile = "3.9.0"
-encoding_rs = "0.8.33"
+
+[package]
+description = "Handle CSV files from a few German banks and PayPal"
+edition = "2021"
+name = "bank-csv"
+version = "0.1.0"

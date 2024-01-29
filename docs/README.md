@@ -4,11 +4,11 @@ Handle CSV files from a few German banks and PayPal.
 
 ## Supported CSV files
 
-| Bank                               | Where to get the CSV                                                                      |
-|------------------------------------|-------------------------------------------------------------------------------------------|
-| [N26](https://n26.com/)            | [Downloads](https://app.n26.com/downloads)                                                |
-| [PayPal](https://www.paypal.com/)  | [Activity report](https://www.paypal.com/reports/dlog)                                    |
-| [DKB](https://www.dkb.de/)         | [DKB Konto Umsätze](https://www.ib.dkb.de/banking/finanzstatus/kontoumsaetze?$event=init) | 
+| Bank                              | Where to get the CSV                                                                      |
+| --------------------------------- | ----------------------------------------------------------------------------------------- |
+| [N26](https://n26.com/)           | [Downloads](https://app.n26.com/downloads)                                                |
+| [PayPal](https://www.paypal.com/) | [Activity report](https://www.paypal.com/reports/dlog)                                    |
+| [DKB](https://www.dkb.de/)        | [DKB Konto Umsätze](https://www.ib.dkb.de/banking/finanzstatus/kontoumsaetze?$event=init) |
 
 PayPal has (as I found so far) 2 different CSV file formats.
 
@@ -20,7 +20,7 @@ It's a heavier dependency, but it's easier to support different CSV formats with
 Install directly from GitHub:
 
 ```bash
-cargo install --git https://github.com/andreoliwa/bank-csv-rs 
+cargo install --git https://github.com/andreoliwa/bank-csv-rs
 ```
 
 This package is not yet published on [crates.io](https://crates.io/).
