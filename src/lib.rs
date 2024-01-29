@@ -1,3 +1,4 @@
+//! Detect CSV files from banks, filter out transactions in a specific currency and generate a CSV file with these transactions
 use chrono::NaiveDate;
 use csv::StringRecord;
 use encoding_rs::ISO_8859_10;
@@ -14,7 +15,9 @@ use tempfile::NamedTempFile;
 const CHAR_COMMA: &str = ",";
 const CHAR_DOT: &str = ".";
 const CHAR_DOUBLE_QUOTE: char = '"';
+/// The number of first columns to read from the CSV file; used to detect the source
 pub const NUM_FIRST_COLUMNS: usize = 5;
+/// The number of columns to select from the CSV file
 pub const NUM_SELECT_COLUMNS: usize = 6;
 const PAYPAL_COLUMNS: [&str; NUM_FIRST_COLUMNS] = ["Date", "Time", "TimeZone", "Name", "Type"];
 const PAYPAL_COLUMNS_OLD: [&str; NUM_FIRST_COLUMNS] =
@@ -34,10 +37,14 @@ const DKB_COLUMNS: [&str; NUM_FIRST_COLUMNS] = [
     "Verwendungszweck",
 ];
 
+/// The source of a CSV file
 #[derive(PartialEq)]
 pub enum Source {
+    /// N26 CSV
     N26,
+    /// PayPal has changed the CSV format at least once
     PayPal,
+    /// DKB has a weird CSV with some lines on the top that don't match the rest of the file
     DKB,
 }
 
@@ -52,6 +59,13 @@ impl Display for Source {
     }
 }
 
+/// Detect the separator of a CSV file
+///
+/// # Arguments
+///
+/// * `file_path`: Path to the CSV file
+///
+/// returns: Result<(u8, Option<Source>), Error>
 pub fn detect_separator(file_path: &Path) -> io::Result<(u8, Option<Source>)> {
     let file = File::open(file_path)?;
     let reader = io::BufReader::new(file);
@@ -88,7 +102,7 @@ pub fn detect_separator(file_path: &Path) -> io::Result<(u8, Option<Source>)> {
     }
 }
 
-/// Remove the first extra lines from a DKB CSV file.
+/// Remove the first extra lines from a DKB CSV file
 ///
 /// # Arguments
 ///
@@ -123,6 +137,14 @@ pub fn dkb_edit_file(
     Ok(())
 }
 
+/// Filter the data frame by currency and determine the source based on the first columns of the CSV
+///
+/// # Arguments
+///
+/// * `df`: the data frame to filter
+/// * `upper_currency`: the currency to filter by, in uppercase (EUR, USD, ...)
+///
+/// returns: (Source, DataFrame)
 pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, DataFrame) {
     let schema = df.schema();
     let first_columns: Vec<&str> = schema
@@ -216,6 +238,21 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, Dat
     )
 }
 
+/// Extract the amount from a DKB memo
+///
+/// # Arguments
+///
+/// * `currency`: 3-letter currency code
+/// * `memo`: The memo or description of the transaction
+///
+/// returns: `Option<String>`
+///
+/// # Examples
+///
+/// ```
+/// use bank_csv::dkb_extract_amount;
+/// assert_eq!(dkb_extract_amount("BRL", "2023-12-12      Debitk.44 Original 6,99 BRL 1 Euro=5,29545460 BRL VISA Debit"), Some("6,99".to_string()));
+/// assert_eq!(dkb_extract_amount("BRL", "Nothing here"), None);
 pub fn dkb_extract_amount(currency: &str, memo: &str) -> Option<String> {
     let original_keyword = "Original ";
     let start = memo.find(original_keyword)?;
@@ -230,14 +267,22 @@ pub fn dkb_extract_amount(currency: &str, memo: &str) -> Option<String> {
     Some(amount.to_string())
 }
 
+/// A row in the CSV output
 #[derive(PartialEq, Eq)]
 pub struct CsvOutputRow {
+    /// The date of the transaction
     pub date: NaiveDate,
+    /// The source of the transaction (PayPal, N26, DKB)
     pub source: String,
+    /// The currency of the transaction, 3 letters (EUR, USD, ...)
     pub currency: String,
+    /// The amount of the transaction
     pub amount: String,
+    /// The type of the transaction, read from the original CSV
     pub transaction_type: String,
+    /// The payee of the transaction
     pub payee: String,
+    /// The memo or description of the transaction
     pub memo: String,
 }
 
@@ -284,6 +329,7 @@ fn strip_quotes(s: String) -> String {
 }
 
 impl CsvOutputRow {
+    /// Create a new CsvOutputRow
     pub fn new(
         date: NaiveDate,
         source: String,
@@ -305,6 +351,8 @@ impl CsvOutputRow {
             memo: strip_quotes(memo),
         }
     }
+
+    /// Create a CSV header
     pub fn header() -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field("Date");
@@ -317,6 +365,7 @@ impl CsvOutputRow {
         record
     }
 
+    /// Convert a CsvOutputRow to a CSV record
     pub fn to_record(&self) -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field(&self.date.format("%Y-%m-%d").to_string());
@@ -328,13 +377,4 @@ impl CsvOutputRow {
         record.push_field(&self.memo);
         record
     }
-}
-
-pub fn header_contains_string(header: &StringRecord, pattern: &str) -> bool {
-    for field in header.iter() {
-        if field.contains(pattern) {
-            return true;
-        }
-    }
-    false
 }

@@ -1,3 +1,4 @@
+//! Detect CSV files from banks, filter out transactions in a specific currency and generate a CSV file with these transactions
 use bank_csv::{
     detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, CsvOutputRow, Source,
     NUM_SELECT_COLUMNS,
@@ -28,7 +29,7 @@ enum Commands {
     Merge {
         /// Path(s) to the CSV file(s) to be parsed
         csv_file_paths: Vec<PathBuf>,
-        /// Currency to filter (case insensitive)
+        /// Currency to filter (case-insensitive)
         #[arg(short, long, default_value = "EUR")]
         currency: String,
         /// Output directory to generate the CSV files. Default: download directory

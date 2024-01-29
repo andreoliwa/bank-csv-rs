@@ -7,3 +7,7 @@ install:
 	cargo install --path .
 uninstall:
 	cargo uninstall
+doc:
+	cargo doc --no-deps --open
+test:
+	cargo test

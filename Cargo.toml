@@ -9,6 +9,12 @@ shellexpand = "3.1.0"
 sorted-vec = "0.8.3"
 tempfile = "3.9.0"
 
+[lints.clippy]
+all = "deny"
+
+[lints.rust]
+missing_docs = "deny"
+
 [package]
 description = "Handle CSV files from a few German banks and PayPal"
 edition = "2021"
