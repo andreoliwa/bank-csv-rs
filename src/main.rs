@@ -1,4 +1,5 @@
-//! Detect CSV files from banks, filter out transactions in a specific currency and generate a CSV file with these transactions
+//! Detect CSV files from a couple of German banks (N26, DKB) and PayPal,
+//! filter out transactions in a specific currency and generate a CSV file with these transactions
 use bank_csv::{
     detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, CsvOutputRow, Source,
     NUM_SELECT_COLUMNS,

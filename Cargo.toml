@@ -16,7 +16,8 @@ all = "deny"
 missing_docs = "deny"
 
 [package]
-description = "Handle CSV files from a few German banks and PayPal"
+description = "Detect CSV files from a couple of German banks (N26, DKB) and PayPal, filter out transactions in a specific currency and generate a CSV file with these transactions"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 name = "bank-csv"
 version = "0.1.0"
