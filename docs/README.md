@@ -17,13 +17,10 @@ It's a heavier dependency, but it's easier to support different CSV formats with
 
 ## Installation
 
-Install directly from GitHub:
-
-```bash
-cargo install --git https://github.com/andreoliwa/bank-csv-rs
-```
-
-This package is not yet published on [crates.io](https://crates.io/).
+| From                                           | Command                                                         |
+| ---------------------------------------------- | --------------------------------------------------------------- |
+| [crates.io](https://crates.io/crates/bank-csv) | `cargo install bank-csv`                                        |
+| GitHub                                         | `cargo install --git https://github.com/andreoliwa/bank-csv-rs` |
 
 ## Usage
 
