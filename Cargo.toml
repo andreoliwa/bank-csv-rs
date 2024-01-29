@@ -16,8 +16,14 @@ all = "deny"
 missing_docs = "deny"
 
 [package]
+authors = ["W Augusto Andreoli <andreoli@sent.com>"]
+categories = ["command-line-utilities", "finance"]
+# https://doc.rust-lang.org/cargo/reference/manifest.html#the-package-section
 description = "Detect CSV files from a couple of German banks (N26, DKB) and PayPal, filter out transactions in a specific currency and generate a CSV file with these transactions"
 edition = "2021"
+keywords = ["banking", "csv", "dkb", "n26", "paypal"]
 license = "MIT OR Apache-2.0"
 name = "bank-csv"
+readme = "docs/README.md"
+repository = "https://github.com/andreoliwa/bank-csv-rs"
 version = "0.1.0"
