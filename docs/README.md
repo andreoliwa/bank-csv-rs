@@ -10,7 +10,7 @@ Handle CSV files from a few German banks and PayPal.
 | [PayPal](https://www.paypal.com/) | [Activity report](https://www.paypal.com/reports/dlog)                                    |
 | [DKB](https://www.dkb.de/)        | [DKB Konto Umsätze](https://www.ib.dkb.de/banking/finanzstatus/kontoumsaetze?$event=init) |
 
-PayPal has (as I found so far) 2 different CSV file formats.
+PayPal CSV columns can be configured on download and the default columns can change.
 
 This project uses [polars](https://github.com/pola-rs/polars) to read CSV files directly by column names.
 It's a heavier dependency, but it's easier to support different CSV formats without being super strict about column order and presence.
