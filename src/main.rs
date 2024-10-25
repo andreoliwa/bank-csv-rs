@@ -131,14 +131,9 @@ fn merge_command(
                 if upper_currency == "EUR" {
                     currency = "EUR".to_string();
                 } else {
-                    let search_pattern = format!("{} 1 Euro", upper_currency);
-                    if !memo.contains(&search_pattern) {
-                        continue;
-                    }
                     currency = upper_currency.clone();
                     match dkb_extract_amount(&currency, &memo) {
                         None => {
-                            eprintln!("Could not extract amount from DKB memo: {}", memo.as_str());
                             continue;
                         }
                         Some(extracted_amount) => {
@@ -161,7 +156,12 @@ fn merge_command(
                 // Some CSVs hve the date in the German format
                 Err(_) => {
                     let date_str = row.0[0].get_str().unwrap();
-                    NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?
+                    if date_str.len() == 8 {
+                        // The new DKB file format has dates with 2-digit years... ¯\_(ツ)_/¯
+                        NaiveDate::parse_from_str(date_str, "%d.%m.%y")?
+                    } else {
+                        NaiveDate::parse_from_str(date_str, "%d.%m.%Y")?
+                    }
                 }
             };
             let transaction = CsvOutputRow::new(

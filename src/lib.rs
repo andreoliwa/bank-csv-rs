@@ -30,12 +30,26 @@ const N26_COLUMNS: [&str; NUM_FIRST_COLUMNS] = [
     "Transaction type",
     "Payment reference",
 ];
+const N26_COLUMNS_2024_09: [&str; NUM_FIRST_COLUMNS] = [
+    "Booking Date",
+    "Value Date",
+    "Partner Name",
+    "Partner Iban",
+    "Type",
+];
 const DKB_COLUMNS: [&str; NUM_FIRST_COLUMNS] = [
     "Buchungstag",
     "Wertstellung",
     "Buchungstext",
     "Auftraggeber / Begünstigter",
     "Verwendungszweck",
+];
+const DKB_COLUMNS_2024_09: [&str; NUM_FIRST_COLUMNS] = [
+    "Buchungsdatum",
+    "Wertstellung",
+    "Status",
+    "Zahlungspflichtige*r",
+    "Zahlungsempfänger*in",
 ];
 
 /// The source of a CSV file
@@ -70,21 +84,21 @@ impl Display for Source {
 pub fn detect_separator(file_path: &Path) -> io::Result<(u8, Option<Source>)> {
     let file = File::open(file_path)?;
     let reader = io::BufReader::new(file);
-    if let Some(first_line) = reader.lines().next() {
-        let line = first_line?;
+    if let Some(line) = reader.lines().next() {
+        let first_line = line?;
 
         // DKB has a weird CSV with some lines on the top that don't match the rest of the file
-        let source = if line.contains("Kontonummer:") {
+        let source = if first_line.contains("Girokonto") {
             Some(Source::DKB)
         } else {
             None
         };
 
-        if line.contains(';') {
+        if first_line.contains(';') {
             Ok((b';', source))
-        } else if line.contains(',') {
+        } else if first_line.contains(',') {
             Ok((b',', source))
-        } else if line.contains('\t') {
+        } else if first_line.contains('\t') {
             Ok((b'\t', source))
         } else {
             Err(io::Error::new(
@@ -124,7 +138,7 @@ pub fn dkb_edit_file(
     let (decoded, _, _) = ISO_8859_10.decode(&buffer);
     let mut write_lines = false;
     for line_content in decoded.lines() {
-        if line_content.contains("Buchungstag") {
+        if line_content.contains("Verwendungszweck") {
             write_lines = true;
         }
         if write_lines {
@@ -189,36 +203,78 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, Dat
             .lazy()
             .filter(col("Currency").eq(lit(upper_currency.as_str())))
             .filter(col("Description").neq(lit("General Currency Conversion")));
-    } else if first_columns == N26_COLUMNS {
+    } else if first_columns == N26_COLUMNS || first_columns == N26_COLUMNS_2024_09 {
         source = Source::N26;
         let amount_column = if upper_currency == "EUR" {
             "Amount (EUR)"
-        } else {
+        } else if first_columns == N26_COLUMNS {
             "Amount (Foreign Currency)"
+        } else {
+            "Original Amount"
         };
-        columns_to_select = [
-            "Date",
-            "Type Foreign Currency",
-            amount_column,
-            "Transaction type",
-            "Payee",
-            "Payment reference",
-        ];
-        lazy_frame = cloned_df
-            .lazy()
-            .filter(col("Type Foreign Currency").eq(lit(upper_currency.as_str())))
+        let currency_column;
+        if first_columns == N26_COLUMNS {
+            currency_column = "Type Foreign Currency";
+            columns_to_select = [
+                "Date",
+                currency_column,
+                amount_column,
+                "Transaction type",
+                "Payee",
+                "Payment reference",
+            ];
+        } else {
+            currency_column = "Original Currency";
+            columns_to_select = [
+                "Booking Date",
+                currency_column,
+                amount_column,
+                "Type",
+                "Partner Name",
+                "Payment Reference",
+            ];
+        }
+        lazy_frame = if upper_currency == "EUR" {
+            // For euros, select also rows with empty currency (N26 is not consistent)
+            cloned_df.lazy().filter(
+                col(currency_column)
+                    .eq(lit(upper_currency.as_str()))
+                    .or(col(currency_column).eq(lit("")))
+                    .or(col(currency_column).is_null()),
+            )
+        } else {
+            cloned_df
+                .lazy()
+                .filter(col(currency_column).eq(lit(upper_currency.as_str())))
+        }
     } else if first_columns == DKB_COLUMNS {
         source = Source::DKB;
         columns_to_select = [
             "Buchungstag",
             // Use any non-duplicated column here, otherwise polars will panic with:
-            // "column with name 'Verwendungszweck' has more than one occurrences".
+            // "column with name 'Verwendungszweck' has more than one occurrence".
             // The memo (Verwendungszweck = "intended use") contains the foreign currency.
             // We will filter and replace the value of this column later.
             "Mandatsreferenz",
             "Betrag (EUR)",
             "Buchungstext",
             "Auftraggeber / Begünstigter",
+            "Verwendungszweck",
+        ];
+        // Filtering will be done manually because DKB doesn't have a currency column
+        lazy_frame = cloned_df.lazy()
+    } else if first_columns == DKB_COLUMNS_2024_09 {
+        source = Source::DKB;
+        columns_to_select = [
+            "Buchungsdatum",
+            // Use any non-duplicated column here, otherwise polars will panic with:
+            // "column with name 'Verwendungszweck' has more than one occurrence".
+            // The memo (Verwendungszweck = "intended use") contains the foreign currency.
+            // We will filter and replace the value of this column later.
+            "Mandatsreferenz",
+            "Betrag (€)",
+            "Umsatztyp",
+            "Zahlungsempfänger*in",
             "Verwendungszweck",
         ];
         // Filtering will be done manually because DKB doesn't have a currency column
@@ -254,15 +310,33 @@ pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, Dat
 /// use bank_csv::dkb_extract_amount;
 /// assert_eq!(dkb_extract_amount("BRL", "2023-12-12      Debitk.44 Original 6,99 BRL 1 Euro=5,29545460 BRL VISA Debit"), Some("6,99".to_string()));
 /// assert_eq!(dkb_extract_amount("BRL", "Nothing here"), None);
+/// assert_eq!(dkb_extract_amount("BRL", "VISA Debitkartenumsatz in Fremdwährung / Ursprungsbetrag in Fremdwährung 19,90 BRL / Umrechnungsrate: 1 Euro=6,03030470 BRL"), Some("19,90".to_string()));
 pub fn dkb_extract_amount(currency: &str, memo: &str) -> Option<String> {
+    if !memo.contains(" 1 Euro=") {
+        return None;
+    }
+
     let original_keyword = "Original ";
-    let start = memo.find(original_keyword)?;
+    let fremdwaehrung = "Ursprungsbetrag in Fremdwährung ";
+    let start;
+    let word_length;
+    if memo.contains(original_keyword) {
+        start = memo.find(original_keyword)?;
+        word_length = original_keyword.len();
+    } else if memo.contains(fremdwaehrung) {
+        start = memo.find(fremdwaehrung)?;
+        word_length = fremdwaehrung.len();
+    } else {
+        eprintln!("Could not extract amount from DKB memo: {}", memo);
+        return None;
+    }
+
     let end = memo.find(currency)?;
     if end <= start {
         return None;
     }
 
-    let amount_start = start + original_keyword.len();
+    let amount_start = start + word_length;
     let amount = &memo[amount_start..end].trim();
 
     Some(amount.to_string())
@@ -340,10 +414,18 @@ impl CsvOutputRow {
         payee: String,
         memo: String,
     ) -> Self {
+        // Assume euros if the currency is empty or "null" (thanks DKB and N26)
+        let stripped = strip_quotes(currency);
+        let final_currency = if stripped.is_empty() || stripped == "null" {
+            "EUR"
+        } else {
+            stripped.as_str()
+        };
+
         Self {
             date,
             source,
-            currency: strip_quotes(currency),
+            currency: final_currency.to_string(),
             // "Numbers" on my macOS only understands commas as decimal separators;
             // I can make it configurable if someone ever uses this crate
             amount: strip_quotes(amount).replace(CHAR_DOT, CHAR_COMMA),

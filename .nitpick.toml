@@ -14,5 +14,8 @@ style = [
   "py://nitpick/resources/any/pre-commit-hooks",
   "py://nitpick/resources/any/prettier",
   "py://nitpick/resources/markdown/markdownlint",
+  "py://nitpick/resources/shell/bashate",
+  "py://nitpick/resources/shell/shellcheck",
+  "py://nitpick/resources/shell/shfmt",
   "py://nitpick/resources/toml/toml-sort",
 ]
