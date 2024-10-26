@@ -3,3 +3,5 @@ plugins:
     enabled: true
   markdownlint:
     enabled: false
+  shellcheck:
+    enabled: true
