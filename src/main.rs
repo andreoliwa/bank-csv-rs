@@ -1,8 +1,8 @@
 //! Detect CSV files from a couple of German banks (N26, DKB) and PayPal,
 //! filter out transactions in a specific currency and generate a CSV file with these transactions
 use bank_csv::{
-    detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, CsvOutputRow, Source,
-    NUM_SELECT_COLUMNS,
+    detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, strip_quotes,
+    CsvOutputRow, Source, NUM_SELECT_COLUMNS,
 };
 use chrono::{Datelike, NaiveDate};
 use clap::{Parser, Subcommand};
@@ -126,7 +126,11 @@ fn merge_command(
 
             let mut currency = row.0[1].to_string();
             let mut amount = row.0[2].to_string();
+            let transaction_type = strip_quotes(row.0[3].to_string());
             let memo = row.0[5].to_string();
+
+            // Post-processing of rows according to the source
+            // TODO: on OOP this would be an abstract method overridden in base classes, but how to do this in Rust?
             if source == Source::DKB {
                 if upper_currency == "EUR" {
                     currency = "EUR".to_string();
@@ -146,6 +150,11 @@ fn merge_command(
                         }
                     }
                 }
+            } else if source == Source::N26 && transaction_type == "Presentment" {
+                // The new file format doesn't seem to have negative amounts anymore,
+                // but different transaction types instead, e.g. A refund is "Presentment Refund"
+                // Turn the amount into a negative number
+                amount = format!("-{}", amount);
             }
 
             let naive_date = match row.0[0].try_extract::<i32>() {
@@ -169,7 +178,7 @@ fn merge_command(
                 source.to_string(),
                 currency,
                 amount,
-                row.0[3].to_string(),
+                transaction_type,
                 row.0[4].to_string(),
                 memo,
             );

@@ -387,15 +387,27 @@ impl Ord for CsvOutputRow {
 
 impl fmt::Display for CsvOutputRow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let direction = if self.amount.contains('-') {
+            "paid to"
+        } else {
+            "from"
+        };
         write!(
             f,
-            "{} [{}] {} {} paid to {} ({})",
-            self.date, self.source, self.currency, self.amount, self.payee, self.transaction_type,
+            "{} [{}] {} {} {} {} ({})",
+            self.date,
+            self.source,
+            self.currency,
+            self.amount,
+            direction,
+            self.payee,
+            self.transaction_type,
         )
     }
 }
 
-fn strip_quotes(s: String) -> String {
+/// Strip double quotes from the content of a field. Needed for the N26 CSV file.
+pub fn strip_quotes(s: String) -> String {
     s.strip_prefix(CHAR_DOUBLE_QUOTE)
         .unwrap_or(s.as_str())
         .strip_suffix(CHAR_DOUBLE_QUOTE)
