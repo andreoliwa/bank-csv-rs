@@ -13,7 +13,7 @@ repos:
       - id: nitpick-suggest
       - id: nitpick
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: end-of-file-fixer
       - id: trailing-whitespace
@@ -22,7 +22,7 @@ repos:
     hooks:
       - id: prettier
         stages:
-          - commit
+          - pre-commit
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
@@ -30,12 +30,12 @@ repos:
       - id: cargo-check
       - id: clippy
   - repo: https://github.com/pappasam/toml-sort
-    rev: v0.23.1
+    rev: v0.24.2
     hooks:
       - id: toml-sort-fix
         exclude: Cargo.lock
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v3.13.0
+    rev: v4.1.0
     hooks:
       - id: commitizen
         stages:
