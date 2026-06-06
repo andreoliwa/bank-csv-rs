@@ -36,6 +36,12 @@ enum Commands {
         #[arg(short, long, value_hint = clap::ValueHint::DirPath)]
         output_dir: Option<PathBuf>,
     },
+    /// Read one or more bank CSV files and emit a normalized intermediate CSV to stdout
+    #[command(arg_required_else_help = true)]
+    Passthrough {
+        /// Path(s) to the CSV file(s) to be parsed
+        csv_file_paths: Vec<PathBuf>,
+    },
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -55,6 +61,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             currency,
             output_dir,
         } => merge_command(csv_file_paths, currency, output_dir),
+        Commands::Passthrough { csv_file_paths } => passthrough_command(csv_file_paths),
     }
 }
 
@@ -166,6 +173,57 @@ fn merge_command(
             writer.write_record(&trn.to_record())?;
         }
         writer.flush()?;
+    }
+    Ok(())
+}
+
+fn passthrough_command(csv_file_paths: Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
+    let mut writer = csv::Writer::from_writer(std::io::stdout());
+    writer.write_record(&CsvOutputRow::header())?;
+    let mut had_error = false;
+
+    for original_path in csv_file_paths {
+        let expanded_path =
+            PathBuf::from(shellexpand::tilde(&original_path.to_string_lossy()).to_string());
+        if !expanded_path.exists() {
+            eprintln!("{}: file does not exist", expanded_path.display());
+            had_error = true;
+            continue;
+        }
+        eprintln!("Parsing {}", expanded_path.display());
+
+        let (separator, source_hint) = match detect_separator(expanded_path.as_path()) {
+            Ok(result) => result,
+            Err(err) => {
+                eprintln!("{}: {}", expanded_path.display(), err);
+                had_error = true;
+                continue;
+            }
+        };
+        let temp_file = NamedTempFile::new()?;
+        let modified_path: &Path = match source_hint {
+            Some(Source::DKB) => {
+                dkb_edit_file(expanded_path.as_path(), &temp_file)?;
+                temp_file.path()
+            }
+            _ => expanded_path.as_path(),
+        };
+
+        let rows = match filter_data_frame(modified_path, separator, "EUR") {
+            Ok((_source, rows)) => rows,
+            Err(err) => {
+                eprintln!("{}: {}", expanded_path.display(), err);
+                had_error = true;
+                continue;
+            }
+        };
+        for row in rows {
+            writer.write_record(&row.to_passthrough_record())?;
+        }
+    }
+    writer.flush()?;
+    if had_error {
+        return Err("One or more files failed to parse".into());
     }
     Ok(())
 }

@@ -638,6 +638,20 @@ impl CsvOutputRow {
         record
     }
 
+    /// Convert a CsvOutputRow to a passthrough CSV record (dot-decimal amounts, ISO 8601 dates)
+    pub fn to_passthrough_record(&self) -> StringRecord {
+        let mut record = StringRecord::new();
+        record.push_field(&self.date.format("%Y-%m-%d").to_string());
+        record.push_field(&self.source);
+        record.push_field(&self.currency);
+        record.push_field(&self.amount);
+        record.push_field(&self.transaction_type);
+        record.push_field(&self.payee);
+        record.push_field(&self.memo);
+        record.push_field(&self.bank_id);
+        record
+    }
+
     /// Convert a CsvOutputRow to a CSV record (merge format: comma-decimal amounts)
     pub fn to_record(&self) -> StringRecord {
         let mut record = StringRecord::new();
