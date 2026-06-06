@@ -211,6 +211,7 @@ pub fn filter_data_frame(
             let date_str = get_field(&record, &col_map, "Date");
             let amount = get_field(&record, &col_map, "Gross");
             let payee = get_field(&record, &col_map, "Name");
+            let bank_id = get_field(&record, &col_map, "Transaction ID");
             let date = parse_date(&date_str)?;
             rows.push(CsvOutputRow::new(
                 date,
@@ -220,6 +221,7 @@ pub fn filter_data_frame(
                 transaction_type,
                 payee,
                 String::new(),
+                bank_id,
             ));
         }
     } else if first_columns == PAYPAL_COLUMNS_OLD {
@@ -238,6 +240,7 @@ pub fn filter_data_frame(
             let date_str = get_field(&record, &col_map, "Date");
             let amount = get_field(&record, &col_map, "Gross");
             let payee = get_field(&record, &col_map, "Name");
+            let bank_id = get_field(&record, &col_map, "Transaction ID");
             let date = parse_date(&date_str)?;
             rows.push(CsvOutputRow::new(
                 date,
@@ -247,6 +250,7 @@ pub fn filter_data_frame(
                 description,
                 payee,
                 String::new(),
+                bank_id,
             ));
         }
     } else if first_columns == N26_COLUMNS {
@@ -280,6 +284,7 @@ pub fn filter_data_frame(
                 transaction_type,
                 payee,
                 memo,
+                String::new(),
             ));
         }
     } else if first_columns == N26_COLUMNS_2024_09 {
@@ -319,6 +324,7 @@ pub fn filter_data_frame(
                 transaction_type,
                 payee,
                 memo,
+                String::new(),
             ));
         }
     } else if first_columns == DKB_COLUMNS {
@@ -347,6 +353,11 @@ pub fn filter_data_frame(
             let date_str = get_field(&record, &col_map, "Buchungstag");
             let transaction_type = get_field(&record, &col_map, "Buchungstext");
             let payee = get_field(&record, &col_map, "Auftraggeber / Begünstigter");
+            let bank_id = col_map
+                .get("Kundenreferenz")
+                .and_then(|&i| record.get(i))
+                .unwrap_or("")
+                .to_string();
             let date = parse_date(&date_str)?;
             // Normalise DKB amount: comma-decimal -> dot-decimal
             let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
@@ -359,6 +370,7 @@ pub fn filter_data_frame(
                 transaction_type,
                 payee,
                 memo,
+                bank_id,
             ));
         }
         return Ok((source, rows));
@@ -388,6 +400,11 @@ pub fn filter_data_frame(
             let date_str = get_field(&record, &col_map, "Buchungsdatum");
             let transaction_type = get_field(&record, &col_map, "Umsatztyp");
             let payee = get_field(&record, &col_map, "Zahlungsempfänger*in");
+            let bank_id = col_map
+                .get("Kundenreferenz")
+                .and_then(|&i| record.get(i))
+                .unwrap_or("")
+                .to_string();
             let date = parse_date(&date_str)?;
             // Normalise DKB amount: comma-decimal -> dot-decimal
             let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
@@ -400,6 +417,7 @@ pub fn filter_data_frame(
                 transaction_type,
                 payee,
                 memo,
+                bank_id,
             ));
         }
         return Ok((source, rows));
@@ -513,6 +531,8 @@ pub struct CsvOutputRow {
     pub payee: String,
     /// The memo or description of the transaction
     pub memo: String,
+    /// The bank-native transaction ID when available
+    pub bank_id: String,
 }
 
 impl PartialOrd for CsvOutputRow {
@@ -572,6 +592,7 @@ pub fn strip_quotes(s: String) -> String {
 impl CsvOutputRow {
     /// Create a new CsvOutputRow
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         date: NaiveDate,
         source: String,
@@ -580,6 +601,7 @@ impl CsvOutputRow {
         transaction_type: String,
         payee: String,
         memo: String,
+        bank_id: String,
     ) -> Self {
         // Assume euros if the currency is empty or "null" (thanks DKB and N26)
         let stripped = strip_quotes(currency);
@@ -598,6 +620,7 @@ impl CsvOutputRow {
             transaction_type: strip_quotes(transaction_type),
             payee: strip_quotes(payee),
             memo: strip_quotes(memo),
+            bank_id: strip_quotes(bank_id),
         }
     }
 
@@ -611,6 +634,7 @@ impl CsvOutputRow {
         record.push_field("Type");
         record.push_field("Payee");
         record.push_field("Memo");
+        record.push_field("BankId");
         record
     }
 
@@ -625,6 +649,7 @@ impl CsvOutputRow {
         record.push_field(&self.transaction_type);
         record.push_field(&self.payee);
         record.push_field(&self.memo);
+        record.push_field(&self.bank_id);
         record
     }
 }

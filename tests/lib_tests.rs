@@ -113,4 +113,28 @@ fn test_filter_data_frame_paypal_current_debit_only() {
             "General Currency Conversion row should be filtered"
         );
     }
+    // BankId assertions: PayPal rows carry Transaction ID
+    assert_eq!(rows[0].bank_id, "TX-FAKE-001");
+    assert_eq!(rows[1].bank_id, "TX-FAKE-002");
+}
+
+#[test]
+fn test_filter_data_frame_dkb_old_bank_id() {
+    let path = fixture("dkb_old.csv");
+    let temp = NamedTempFile::new().expect("tempfile failed");
+    dkb_edit_file(&path, &temp).expect("dkb_edit_file failed");
+
+    let (_source, rows) =
+        filter_data_frame(temp.path(), b';', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[0].bank_id, "485210393446368");
+    assert_eq!(rows[1].bank_id, "SEPAREF123456");
+}
+
+#[test]
+fn test_filter_data_frame_n26_bank_id_empty() {
+    let path = fixture("n26_old.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    for row in &rows {
+        assert_eq!(row.bank_id, "", "N26 rows should always have empty bank_id");
+    }
 }
