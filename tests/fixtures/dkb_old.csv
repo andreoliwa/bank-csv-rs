@@ -1,0 +1,8 @@
+"Kontonummer:";"DE12345678901234567890 / Girokonto";
+"Von:";"01.01.2024";
+"Bis:";"31.01.2024";
+"Kontostand vom 31.01.2024:";"1.234,56 EUR";
+"";
+"Buchungstag";"Wertstellung";"Buchungstext";"Auftraggeber / Begünstigter";"Verwendungszweck";"Glaeubiger-ID";"Mandatsreferenz";"Kundenreferenz";"Betrag (EUR)";"Glaeubiger-ID";"Mandatsreferenz";"Kundenreferenz"
+"15.01.2024";"15.01.2024";"Lastschrift";"Alice Musterfrau";"Miete Januar";"";"";"485210393446368";"-500,00";"";"";"485210393446368"
+"20.01.2024";"20.01.2024";"Gutschrift";"Bob Beispiel";"Erstattung";"";"";"SEPAREF123456";"100,00";"";"";"SEPAREF123456"

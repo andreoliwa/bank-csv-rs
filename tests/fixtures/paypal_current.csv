@@ -1,0 +1,4 @@
+Date,Time,TimeZone,Name,Type,Status,Currency,Gross,Fee,Net,From Email Address,To Email Address,Transaction ID,Item Title,Item ID,Shipping and Handling Amount,Insurance Amount,Sales Tax,Option 1 Name,Option 1 Value,Option 2 Name,Option 2 Value,Reference Txn ID,Invoice Number,Custom Number,Quantity,Receipt ID,Balance,Address Status,Address Line 1,Address Line 2,Town/City,State/Province/Region/County/Territory/Prefecture/Republic,Zip/Postal Code,Country,Contact Phone Number,Balance Impact
+01/15/2024,10:00:00,CET,Alice Musterfrau,Shopping,-,EUR,"-23.45","0.00","-23.45",buyer@example.com,seller@example.com,TX-FAKE-001,,,,,,,,,,,,,,,,,,,,,,,,Debit
+01/20/2024,11:00:00,CET,Bob Beispiel,Shopping,-,EUR,"-12.00","0.00","-12.00",buyer@example.com,shop@example.com,TX-FAKE-002,,,,,,,,,,,,,,,,,,,,,,,,Debit
+01/21/2024,12:00:00,CET,,General Currency Conversion,-,USD,"10.00","0.00","10.00",,,TX-FAKE-003,,,,,,,,,,,,,,,,,,,,,,,,Credit

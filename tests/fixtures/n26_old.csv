@@ -1,0 +1,3 @@
+"Date","Payee","Account number","Transaction type","Payment reference","Category","Amount (EUR)","Amount (Foreign Currency)","Type Foreign Currency","Exchange Rate"
+"2024-01-15","Alice Musterfrau","DE00000000000000000000","MasterCard Payment","Ref001","","-12.00","","",""
+"2024-01-20","Bob Beispiel","","Income","Salary","","2000.00","","",""

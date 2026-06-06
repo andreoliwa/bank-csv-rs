@@ -1,0 +1,3 @@
+"Buchungsdatum";"Wertstellung";"Status";"Zahlungspflichtige*r";"Zahlungsempfänger*in";"Verwendungszweck";"Umsatztyp";"Betrag (€)";"Gläubiger-ID";"Mandatsreferenz";"Kundenreferenz"
+"15.01.24";"15.01.24";"Gebucht";"Alice Musterfrau";"REWE Markt";"Einkauf";"Lastschrift";"-23,45";"";"";"485210393446001"
+"20.01.24";"20.01.24";"Gebucht";"Bob Beispiel";"Alice Musterfrau";"Lohn";"Gutschrift";"1500,00";"";"";"SEPAREF000001"

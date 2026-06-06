@@ -3,8 +3,8 @@
 use chrono::NaiveDate;
 use csv::StringRecord;
 use encoding_rs::ISO_8859_10;
-use polars::prelude::*;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
 use std::fs::File;
@@ -18,8 +18,6 @@ const CHAR_DOT: &str = ".";
 const CHAR_DOUBLE_QUOTE: char = '"';
 /// The number of first columns to read from the CSV file; used to detect the source
 pub const NUM_FIRST_COLUMNS: usize = 5;
-/// The number of columns to select from the CSV file
-pub const NUM_SELECT_COLUMNS: usize = 6;
 const PAYPAL_COLUMNS: [&str; NUM_FIRST_COLUMNS] = ["Date", "Time", "TimeZone", "Name", "Type"];
 const PAYPAL_COLUMNS_OLD: [&str; NUM_FIRST_COLUMNS] =
     ["Date", "Time", "Time Zone", "Description", "Currency"];
@@ -53,7 +51,7 @@ const DKB_COLUMNS_2024_09: [&str; NUM_FIRST_COLUMNS] = [
 ];
 
 /// The source of a CSV file
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Source {
     /// N26 CSV
     N26,
@@ -152,147 +150,303 @@ pub fn dkb_edit_file(
     Ok(())
 }
 
-/// Filter the data frame by currency and determine the source based on the first columns of the CSV
+/// Filter rows from a CSV file by currency and determine the source based on the first columns
 ///
 /// # Arguments
 ///
-/// * `df`: the data frame to filter
+/// * `file_path`: path to the CSV file to read
+/// * `separator`: field delimiter byte (e.g. b',' or b';')
 /// * `upper_currency`: the currency to filter by, in uppercase (EUR, USD, ...)
 ///
-/// returns: (Source, DataFrame)
-pub fn filter_data_frame(df: &DataFrame, upper_currency: String) -> (Source, DataFrame) {
-    let schema = df.schema();
-    let first_columns: Vec<&str> = schema
-        .iter_names()
+/// returns: `Result<(Source, Vec<CsvOutputRow>), Error>`
+pub fn filter_data_frame(
+    file_path: &Path,
+    separator: u8,
+    upper_currency: &str,
+) -> Result<(Source, Vec<CsvOutputRow>), Box<dyn std::error::Error>> {
+    let file = File::open(file_path)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .delimiter(separator)
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(file);
+
+    // Read header and build column map
+    let header_record = rdr.headers()?.clone();
+    let headers: Vec<String> = header_record.iter().map(|s| s.to_string()).collect();
+    let first_columns: Vec<&str> = headers
+        .iter()
         .take(NUM_FIRST_COLUMNS)
-        .map(|field| field.as_str())
+        .map(|s| s.as_str())
         .collect();
 
-    let columns_to_select: [&str; NUM_SELECT_COLUMNS];
+    // Build column index map
+    let col_map: HashMap<&str, usize> = headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| (h.as_str(), i))
+        .collect();
+
     let source: Source;
-    let lazy_frame: LazyFrame;
-    let cloned_df = df.clone();
+    let mut rows: Vec<CsvOutputRow> = Vec::new();
 
     // TODO: move these configs to separate structs or enums instead of "if" statements
     if first_columns == PAYPAL_COLUMNS {
         source = Source::PayPal;
-        columns_to_select = [
-            "Date",
-            "Currency",
-            "Gross",
-            "Type",
-            "Name",
-            "Transaction ID",
-        ];
-        lazy_frame = cloned_df
-            .lazy()
-            .filter(col("Currency").eq(lit(upper_currency.as_str())))
-            .filter(col("Balance Impact").eq(lit("Debit")))
-            .filter(col("Type").neq(lit("General Currency Conversion")));
+        for result in rdr.records() {
+            let record = result?;
+            let currency = get_field(&record, &col_map, "Currency");
+            let balance_impact = get_field(&record, &col_map, "Balance Impact");
+            let transaction_type = get_field(&record, &col_map, "Type");
+            // Filter: currency must match, must be Debit, not General Currency Conversion
+            if currency != upper_currency {
+                continue;
+            }
+            if balance_impact != "Debit" {
+                continue;
+            }
+            if transaction_type == "General Currency Conversion" {
+                continue;
+            }
+            let date_str = get_field(&record, &col_map, "Date");
+            let amount = get_field(&record, &col_map, "Gross");
+            let payee = get_field(&record, &col_map, "Name");
+            let date = parse_date(&date_str)?;
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::PayPal.to_string(),
+                currency,
+                amount,
+                transaction_type,
+                payee,
+                String::new(),
+            ));
+        }
     } else if first_columns == PAYPAL_COLUMNS_OLD {
         source = Source::PayPal;
-        columns_to_select = [
-            "Date",
-            "Currency",
-            "Gross",
-            "Description",
-            "Name",
-            "Transaction ID",
-        ];
-        lazy_frame = cloned_df
-            .lazy()
-            .filter(col("Currency").eq(lit(upper_currency.as_str())))
-            .filter(col("Description").neq(lit("General Currency Conversion")));
-    } else if first_columns == N26_COLUMNS || first_columns == N26_COLUMNS_2024_09 {
-        source = Source::N26;
-        let amount_column = if upper_currency == "EUR" {
-            "Amount (EUR)"
-        } else if first_columns == N26_COLUMNS {
-            "Amount (Foreign Currency)"
-        } else {
-            "Original Amount"
-        };
-        let currency_column;
-        if first_columns == N26_COLUMNS {
-            currency_column = "Type Foreign Currency";
-            columns_to_select = [
-                "Date",
-                currency_column,
-                amount_column,
-                "Transaction type",
-                "Payee",
-                "Payment reference",
-            ];
-        } else {
-            currency_column = "Original Currency";
-            columns_to_select = [
-                "Booking Date",
-                currency_column,
-                amount_column,
-                "Type",
-                "Partner Name",
-                "Payment Reference",
-            ];
+        for result in rdr.records() {
+            let record = result?;
+            let currency = get_field(&record, &col_map, "Currency");
+            let description = get_field(&record, &col_map, "Description");
+            // Filter: currency must match, not General Currency Conversion
+            if currency != upper_currency {
+                continue;
+            }
+            if description == "General Currency Conversion" {
+                continue;
+            }
+            let date_str = get_field(&record, &col_map, "Date");
+            let amount = get_field(&record, &col_map, "Gross");
+            let payee = get_field(&record, &col_map, "Name");
+            let date = parse_date(&date_str)?;
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::PayPal.to_string(),
+                currency,
+                amount,
+                description,
+                payee,
+                String::new(),
+            ));
         }
-        lazy_frame = if upper_currency == "EUR" {
-            // For euros, select also rows with empty currency (N26 is not consistent)
-            cloned_df.lazy().filter(
-                col(currency_column)
-                    .eq(lit(upper_currency.as_str()))
-                    .or(col(currency_column).eq(lit("")))
-                    .or(col(currency_column).is_null()),
-            )
-        } else {
-            cloned_df
-                .lazy()
-                .filter(col(currency_column).eq(lit(upper_currency.as_str())))
+    } else if first_columns == N26_COLUMNS {
+        source = Source::N26;
+        for result in rdr.records() {
+            let record = result?;
+            let currency_val = get_field(&record, &col_map, "Type Foreign Currency");
+            // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
+            if upper_currency == "EUR" {
+                if !currency_val.is_empty() && currency_val != "EUR" {
+                    continue;
+                }
+            } else if currency_val != upper_currency {
+                continue;
+            }
+            let date_str = get_field(&record, &col_map, "Date");
+            let amount = get_field(&record, &col_map, "Amount (EUR)");
+            let transaction_type = get_field(&record, &col_map, "Transaction type");
+            let payee = get_field(&record, &col_map, "Payee");
+            let memo = get_field(&record, &col_map, "Payment reference");
+            let date = parse_date(&date_str)?;
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::N26.to_string(),
+                if currency_val.is_empty() {
+                    "EUR".to_string()
+                } else {
+                    currency_val
+                },
+                amount,
+                transaction_type,
+                payee,
+                memo,
+            ));
+        }
+    } else if first_columns == N26_COLUMNS_2024_09 {
+        source = Source::N26;
+        for result in rdr.records() {
+            let record = result?;
+            let currency_val = get_field(&record, &col_map, "Original Currency");
+            // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
+            if upper_currency == "EUR" {
+                if !currency_val.is_empty() && currency_val != "EUR" {
+                    continue;
+                }
+            } else if currency_val != upper_currency {
+                continue;
+            }
+            let date_str = get_field(&record, &col_map, "Booking Date");
+            let amount_raw = get_field(&record, &col_map, "Amount (EUR)");
+            let transaction_type = get_field(&record, &col_map, "Type");
+            let payee = get_field(&record, &col_map, "Partner Name");
+            let memo = get_field(&record, &col_map, "Payment Reference");
+            let date = parse_date(&date_str)?;
+            // N26 new format: "Presentment" transactions have positive amounts that represent debits
+            let amount = if transaction_type == "Presentment" {
+                format!("-{}", amount_raw.trim_start_matches('-'))
+            } else {
+                amount_raw
+            };
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::N26.to_string(),
+                if currency_val.is_empty() {
+                    "EUR".to_string()
+                } else {
+                    currency_val
+                },
+                amount,
+                transaction_type,
+                payee,
+                memo,
+            ));
         }
     } else if first_columns == DKB_COLUMNS {
         source = Source::DKB;
-        columns_to_select = [
-            "Buchungstag",
-            // Use any non-duplicated column here, otherwise polars will panic with:
-            // "column with name 'Verwendungszweck' has more than one occurrence".
-            // The memo (Verwendungszweck = "intended use") contains the foreign currency.
-            // We will filter and replace the value of this column later.
-            "Mandatsreferenz",
-            "Betrag (EUR)",
-            "Buchungstext",
-            "Auftraggeber / Begünstigter",
-            "Verwendungszweck",
-        ];
-        // Filtering will be done manually because DKB doesn't have a currency column
-        lazy_frame = cloned_df.lazy()
+        for result in rdr.records() {
+            let record = result?;
+            let memo = get_field(&record, &col_map, "Verwendungszweck");
+            let mut currency = if upper_currency == "EUR" {
+                "EUR".to_string()
+            } else {
+                upper_currency.to_string()
+            };
+            let mut amount = get_field(&record, &col_map, "Betrag (EUR)");
+            if upper_currency != "EUR" {
+                match dkb_extract_amount(&currency, &memo) {
+                    None => continue,
+                    Some(extracted) => {
+                        amount = if amount.contains('-') {
+                            format!("-{}", extracted)
+                        } else {
+                            extracted
+                        };
+                    }
+                }
+            }
+            let date_str = get_field(&record, &col_map, "Buchungstag");
+            let transaction_type = get_field(&record, &col_map, "Buchungstext");
+            let payee = get_field(&record, &col_map, "Auftraggeber / Begünstigter");
+            let date = parse_date(&date_str)?;
+            // Normalise DKB amount: comma-decimal -> dot-decimal
+            let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
+            currency = currency.replace(CHAR_COMMA, CHAR_DOT);
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::DKB.to_string(),
+                currency,
+                amount_dot,
+                transaction_type,
+                payee,
+                memo,
+            ));
+        }
+        return Ok((source, rows));
     } else if first_columns == DKB_COLUMNS_2024_09 {
         source = Source::DKB;
-        columns_to_select = [
-            "Buchungsdatum",
-            // Use any non-duplicated column here, otherwise polars will panic with:
-            // "column with name 'Verwendungszweck' has more than one occurrence".
-            // The memo (Verwendungszweck = "intended use") contains the foreign currency.
-            // We will filter and replace the value of this column later.
-            "Mandatsreferenz",
-            "Betrag (€)",
-            "Umsatztyp",
-            "Zahlungsempfänger*in",
-            "Verwendungszweck",
-        ];
-        // Filtering will be done manually because DKB doesn't have a currency column
-        lazy_frame = cloned_df.lazy()
+        for result in rdr.records() {
+            let record = result?;
+            let memo = get_field(&record, &col_map, "Verwendungszweck");
+            let mut currency = if upper_currency == "EUR" {
+                "EUR".to_string()
+            } else {
+                upper_currency.to_string()
+            };
+            let mut amount = get_field(&record, &col_map, "Betrag (€)");
+            if upper_currency != "EUR" {
+                match dkb_extract_amount(&currency, &memo) {
+                    None => continue,
+                    Some(extracted) => {
+                        amount = if amount.contains('-') {
+                            format!("-{}", extracted)
+                        } else {
+                            extracted
+                        };
+                    }
+                }
+            }
+            let date_str = get_field(&record, &col_map, "Buchungsdatum");
+            let transaction_type = get_field(&record, &col_map, "Umsatztyp");
+            let payee = get_field(&record, &col_map, "Zahlungsempfänger*in");
+            let date = parse_date(&date_str)?;
+            // Normalise DKB amount: comma-decimal -> dot-decimal
+            let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
+            currency = currency.replace(CHAR_COMMA, CHAR_DOT);
+            rows.push(CsvOutputRow::new(
+                date,
+                Source::DKB.to_string(),
+                currency,
+                amount_dot,
+                transaction_type,
+                payee,
+                memo,
+            ));
+        }
+        return Ok((source, rows));
     } else {
-        panic!(
-            "Unknown CSV format. These are the first columns: {:?}",
+        return Err(format!(
+            "{}: unknown CSV format (first columns: {:?})",
+            file_path.display(),
             first_columns
-        );
+        )
+        .into());
     }
 
-    (
-        source,
-        lazy_frame
-            .select([cols(columns_to_select)])
-            .collect()
-            .unwrap(),
-    )
+    Ok((source, rows))
+}
+
+/// Get a field value from a record by column name, returning empty string if not found
+fn get_field(record: &StringRecord, col_map: &HashMap<&str, usize>, col_name: &str) -> String {
+    col_map
+        .get(col_name)
+        .and_then(|&i| record.get(i))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Parse a date string in multiple formats (ISO, German with 2-digit year, German with 4-digit year)
+fn parse_date(date_str: &str) -> Result<NaiveDate, Box<dyn std::error::Error>> {
+    // Try ISO 8601 (N26, PayPal: YYYY-MM-DD)
+    if let Ok(d) = NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+        return Ok(d);
+    }
+    // Try DD/MM/YYYY (PayPal DE locale and others)
+    if let Ok(d) = NaiveDate::parse_from_str(date_str, "%d/%m/%Y") {
+        return Ok(d);
+    }
+    // Try MM/DD/YYYY (PayPal US locale)
+    if let Ok(d) = NaiveDate::parse_from_str(date_str, "%m/%d/%Y") {
+        return Ok(d);
+    }
+    // Try DKB new 2-digit year (DD.MM.YY)
+    if let Ok(d) = NaiveDate::parse_from_str(date_str, "%d.%m.%y") {
+        return Ok(d);
+    }
+    // Try DKB old 4-digit year (DD.MM.YYYY)
+    if let Ok(d) = NaiveDate::parse_from_str(date_str, "%d.%m.%Y") {
+        return Ok(d);
+    }
+    Err(format!("Cannot parse date: {}", date_str).into())
 }
 
 /// Extract the amount from a DKB memo
@@ -351,7 +505,7 @@ pub struct CsvOutputRow {
     pub source: String,
     /// The currency of the transaction, 3 letters (EUR, USD, ...)
     pub currency: String,
-    /// The amount of the transaction
+    /// The amount of the transaction, stored as dot-decimal
     pub amount: String,
     /// The type of the transaction, read from the original CSV
     pub transaction_type: String,
@@ -417,6 +571,7 @@ pub fn strip_quotes(s: String) -> String {
 
 impl CsvOutputRow {
     /// Create a new CsvOutputRow
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         date: NaiveDate,
         source: String,
@@ -438,9 +593,8 @@ impl CsvOutputRow {
             date,
             source,
             currency: final_currency.to_string(),
-            // "Numbers" on my macOS only understands commas as decimal separators;
-            // I can make it configurable if someone ever uses this crate
-            amount: strip_quotes(amount).replace(CHAR_DOT, CHAR_COMMA),
+            // Store amount as dot-decimal (raw); comma conversion is merge command's responsibility
+            amount: strip_quotes(amount),
             transaction_type: strip_quotes(transaction_type),
             payee: strip_quotes(payee),
             memo: strip_quotes(memo),
@@ -460,13 +614,14 @@ impl CsvOutputRow {
         record
     }
 
-    /// Convert a CsvOutputRow to a CSV record
+    /// Convert a CsvOutputRow to a CSV record (merge format: comma-decimal amounts)
     pub fn to_record(&self) -> StringRecord {
         let mut record = StringRecord::new();
         record.push_field(&self.date.format("%Y-%m-%d").to_string());
         record.push_field(&self.source);
         record.push_field(&self.currency);
-        record.push_field(&self.amount);
+        // Merge format uses comma-decimal for macOS Numbers compatibility
+        record.push_field(&self.amount.replace(CHAR_DOT, CHAR_COMMA));
         record.push_field(&self.transaction_type);
         record.push_field(&self.payee);
         record.push_field(&self.memo);
