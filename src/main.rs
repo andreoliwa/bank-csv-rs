@@ -5,7 +5,8 @@ use bank_csv::{
     CsvOutputRow, Source, NUM_SELECT_COLUMNS,
 };
 use chrono::{Datelike, NaiveDate};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use csv::Writer;
 use polars::export::arrow::temporal_conversions::EPOCH_DAYS_FROM_CE;
 use polars::frame::row::Row;
@@ -25,6 +26,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
     /// Merge one or more bank CSV files and split them into multiple files, one for each month
     #[command(arg_required_else_help = true)]
     Merge {
@@ -42,6 +48,15 @@ enum Commands {
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     match cli.command {
+        Commands::Completions { shell } => {
+            generate(
+                shell,
+                &mut Cli::command(),
+                "bank-csv",
+                &mut std::io::stdout(),
+            );
+            Ok(())
+        }
         Commands::Merge {
             csv_file_paths,
             currency,
