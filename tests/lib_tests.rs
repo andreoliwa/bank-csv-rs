@@ -1,5 +1,6 @@
 //! Unit tests for lib.rs functions: filter_data_frame, detect_separator, dkb_edit_file, dkb_extract_amount
 use bank_csv::{detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, Source};
+use chrono::NaiveDate;
 use std::path::Path;
 use tempfile::NamedTempFile;
 
@@ -116,6 +117,9 @@ fn test_filter_data_frame_paypal_current_debit_only() {
     // BankId assertions: PayPal rows carry Transaction ID
     assert_eq!(rows[0].bank_id, "TX-FAKE-001");
     assert_eq!(rows[1].bank_id, "TX-FAKE-002");
+    // Date regression: fixture uses DD/MM/YYYY (DE locale)
+    assert_eq!(rows[0].date, NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    assert_eq!(rows[1].date, NaiveDate::from_ymd_opt(2024, 1, 20).unwrap());
 }
 
 #[test]
