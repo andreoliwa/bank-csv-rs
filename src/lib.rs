@@ -342,13 +342,13 @@ pub fn filter_data_frame(
         for result in rdr.records() {
             let record = result?;
             let memo = get_field(&record, &col_map, "Verwendungszweck");
-            let mut currency = if upper_currency == "EUR" {
+            let mut currency = if upper_currency == "EUR" || upper_currency == "ALL" {
                 "EUR".to_string()
             } else {
                 upper_currency.to_string()
             };
             let mut amount = get_field(&record, &col_map, "Betrag (EUR)");
-            if upper_currency != "EUR" {
+            if upper_currency != "EUR" && upper_currency != "ALL" {
                 match dkb_extract_amount(&currency, &memo) {
                     None => continue,
                     Some(extracted) => {
@@ -393,13 +393,13 @@ pub fn filter_data_frame(
         for result in rdr.records() {
             let record = result?;
             let memo = get_field(&record, &col_map, "Verwendungszweck");
-            let mut currency = if upper_currency == "EUR" {
+            let mut currency = if upper_currency == "EUR" || upper_currency == "ALL" {
                 "EUR".to_string()
             } else {
                 upper_currency.to_string()
             };
             let mut amount = get_field(&record, &col_map, "Betrag (€)");
-            if upper_currency != "EUR" {
+            if upper_currency != "EUR" && upper_currency != "ALL" {
                 match dkb_extract_amount(&currency, &memo) {
                     None => continue,
                     Some(extracted) => {
