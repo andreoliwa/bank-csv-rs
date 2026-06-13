@@ -142,3 +142,40 @@ fn test_filter_data_frame_n26_bank_id_empty() {
         assert_eq!(row.bank_id, "", "N26 rows should always have empty bank_id");
     }
 }
+
+// --- PayPal payee and memo construction ---
+
+#[test]
+fn test_paypal_payee_name_and_email() {
+    let path = fixture("paypal_payee_memo.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[0].payee, "Alice Musterfrau <seller@example.com>");
+}
+
+#[test]
+fn test_paypal_payee_email_only() {
+    let path = fixture("paypal_payee_memo.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[2].payee, "anon@example.com");
+}
+
+#[test]
+fn test_paypal_payee_name_only() {
+    let path = fixture("paypal_payee_memo.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[3].payee, "Carol Nomail");
+}
+
+#[test]
+fn test_paypal_memo_prefers_note_over_subject() {
+    let path = fixture("paypal_payee_memo.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[0].memo, "note text");
+}
+
+#[test]
+fn test_paypal_memo_falls_back_to_subject() {
+    let path = fixture("paypal_payee_memo.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    assert_eq!(rows[1].memo, "subject text");
+}
