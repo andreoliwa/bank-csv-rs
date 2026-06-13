@@ -198,8 +198,7 @@ pub fn filter_data_frame(
             let currency = get_field(&record, &col_map, "Currency");
             let balance_impact = get_field(&record, &col_map, "Balance Impact");
             let transaction_type = get_field(&record, &col_map, "Type");
-            // Filter: currency must match, must be Debit, not General Currency Conversion
-            if currency != upper_currency {
+            if upper_currency != "ALL" && currency != upper_currency {
                 continue;
             }
             if balance_impact != "Debit" {
@@ -230,8 +229,7 @@ pub fn filter_data_frame(
             let record = result?;
             let currency = get_field(&record, &col_map, "Currency");
             let description = get_field(&record, &col_map, "Description");
-            // Filter: currency must match, not General Currency Conversion
-            if currency != upper_currency {
+            if upper_currency != "ALL" && currency != upper_currency {
                 continue;
             }
             if description == "General Currency Conversion" {
@@ -257,48 +255,49 @@ pub fn filter_data_frame(
         source = Source::N26;
         for result in rdr.records() {
             let record = result?;
-            let currency_val = get_field(&record, &col_map, "Type Foreign Currency");
-            // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
-            if upper_currency == "EUR" {
-                if !currency_val.is_empty() && currency_val != "EUR" {
-                    continue;
-                }
-            } else if currency_val != upper_currency {
-                continue;
-            }
+            let foreign_currency = get_field(&record, &col_map, "Type Foreign Currency");
             let date_str = get_field(&record, &col_map, "Date");
             let amount = get_field(&record, &col_map, "Amount (EUR)");
             let transaction_type = get_field(&record, &col_map, "Transaction type");
             let payee = get_field(&record, &col_map, "Payee");
             let memo = get_field(&record, &col_map, "Payment reference");
+            let original_amount = get_field(&record, &col_map, "Amount (Foreign Currency)");
             let date = parse_date(&date_str)?;
-            rows.push(CsvOutputRow::new(
+            let mut row = CsvOutputRow::new(
                 date,
                 Source::N26.to_string(),
-                if currency_val.is_empty() {
-                    "EUR".to_string()
-                } else {
-                    currency_val
-                },
+                "EUR".to_string(),
                 amount,
                 transaction_type,
                 payee,
                 memo,
                 String::new(),
-            ));
+            );
+            // Carry FX data only for debits (negative amount). Positive rows are reversals/refunds
+            // and should not have FX cost annotation - they balance implicitly.
+            let amount_is_debit = row.amount.starts_with('-');
+            if !foreign_currency.is_empty() && foreign_currency != "EUR" && amount_is_debit {
+                row.original_amount = strip_quotes(original_amount)
+                    .trim_start_matches('-')
+                    .to_string();
+                row.original_currency = foreign_currency;
+            }
+            rows.push(row);
         }
     } else if first_columns == N26_COLUMNS_2024_09 {
         source = Source::N26;
         for result in rdr.records() {
             let record = result?;
             let currency_val = get_field(&record, &col_map, "Original Currency");
-            // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
-            if upper_currency == "EUR" {
-                if !currency_val.is_empty() && currency_val != "EUR" {
+            if upper_currency != "ALL" {
+                // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
+                if upper_currency == "EUR" {
+                    if !currency_val.is_empty() && currency_val != "EUR" {
+                        continue;
+                    }
+                } else if currency_val != upper_currency {
                     continue;
                 }
-            } else if currency_val != upper_currency {
-                continue;
             }
             let date_str = get_field(&record, &col_map, "Booking Date");
             let amount_raw = get_field(&record, &col_map, "Amount (EUR)");
@@ -744,12 +743,12 @@ impl CsvOutputRow {
         record.push_field(&self.date.format("%Y-%m-%d").to_string());
         record.push_field(&self.source);
         record.push_field(&self.currency);
-        record.push_field(&self.amount);
+        record.push_field(&self.amount.replace(CHAR_COMMA, CHAR_DOT));
         record.push_field(&self.transaction_type);
         record.push_field(&self.payee);
         record.push_field(&self.memo);
         record.push_field(&self.bank_id);
-        record.push_field(&self.original_amount);
+        record.push_field(&self.original_amount.replace(CHAR_COMMA, CHAR_DOT));
         record.push_field(&self.original_currency);
         record
     }

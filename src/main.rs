@@ -209,7 +209,7 @@ fn passthrough_command(csv_file_paths: Vec<PathBuf>) -> Result<(), Box<dyn Error
             _ => expanded_path.as_path(),
         };
 
-        let rows = match filter_data_frame(modified_path, separator, "EUR") {
+        let rows = match filter_data_frame(modified_path, separator, "ALL") {
             Ok((_source, rows)) => rows,
             Err(err) => {
                 eprintln!("{}: {}", expanded_path.display(), err);
