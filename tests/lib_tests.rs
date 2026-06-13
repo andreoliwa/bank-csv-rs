@@ -179,3 +179,35 @@ fn test_paypal_memo_falls_back_to_subject() {
     let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
     assert_eq!(rows[1].memo, "subject text");
 }
+
+// --- N26 new format FX ---
+
+#[test]
+fn test_n26_new_fx_row_carries_original_amount_and_currency() {
+    let path = fixture("n26_new.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "ALL").expect("filter_data_frame failed");
+    // Row index 2 is the BRL Presentment row
+    let fx_row = rows
+        .iter()
+        .find(|r| r.original_currency == "BRL")
+        .expect("BRL row not found");
+    assert_eq!(fx_row.original_currency, "BRL");
+    assert_eq!(fx_row.original_amount, "28.30");
+    assert_eq!(fx_row.currency, "EUR");
+    assert!(
+        fx_row.amount.starts_with('-'),
+        "Presentment should be negative"
+    );
+}
+
+#[test]
+fn test_n26_new_eur_row_has_no_fx_data() {
+    let path = fixture("n26_new.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "ALL").expect("filter_data_frame failed");
+    let eur_row = rows
+        .iter()
+        .find(|r| r.memo == "Ref001")
+        .expect("Ref001 row not found");
+    assert_eq!(eur_row.original_currency, "");
+    assert_eq!(eur_row.original_amount, "");
+}

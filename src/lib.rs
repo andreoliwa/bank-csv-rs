@@ -299,14 +299,14 @@ pub fn filter_data_frame(
         source = Source::N26;
         for result in rdr.records() {
             let record = result?;
-            let currency_val = get_field(&record, &col_map, "Original Currency");
+            let original_currency = get_field(&record, &col_map, "Original Currency");
             if upper_currency != "ALL" {
                 // For EUR: include rows with empty currency or "EUR" (N26 is not consistent)
                 if upper_currency == "EUR" {
-                    if !currency_val.is_empty() && currency_val != "EUR" {
+                    if !original_currency.is_empty() && original_currency != "EUR" {
                         continue;
                     }
-                } else if currency_val != upper_currency {
+                } else if original_currency != upper_currency {
                     continue;
                 }
             }
@@ -315,6 +315,7 @@ pub fn filter_data_frame(
             let transaction_type = get_field(&record, &col_map, "Type");
             let payee = get_field(&record, &col_map, "Partner Name");
             let memo = get_field(&record, &col_map, "Payment Reference");
+            let original_amount_raw = get_field(&record, &col_map, "Original Amount");
             let date = parse_date(&date_str)?;
             // N26 new format: "Presentment" transactions have positive amounts that represent debits
             let amount = if transaction_type == "Presentment" {
@@ -322,20 +323,27 @@ pub fn filter_data_frame(
             } else {
                 amount_raw
             };
-            rows.push(CsvOutputRow::new(
+            let mut row = CsvOutputRow::new(
                 date,
                 Source::N26.to_string(),
-                if currency_val.is_empty() {
-                    "EUR".to_string()
-                } else {
-                    currency_val
-                },
+                "EUR".to_string(),
                 amount,
                 transaction_type,
                 payee,
                 memo,
                 String::new(),
-            ));
+            );
+            // Carry FX data only for debits in a foreign currency.
+            let amount_is_debit = row.amount.starts_with('-');
+            if !original_currency.is_empty()
+                && original_currency != "EUR"
+                && amount_is_debit
+                && !original_amount_raw.is_empty()
+            {
+                row.original_amount = original_amount_raw.trim_start_matches('-').to_string();
+                row.original_currency = original_currency;
+            }
+            rows.push(row);
         }
     } else if first_columns == DKB_COLUMNS {
         source = Source::DKB;

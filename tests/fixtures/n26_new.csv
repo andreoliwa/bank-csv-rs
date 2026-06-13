@@ -1,3 +1,4 @@
 "Booking Date","Value Date","Partner Name","Partner Iban","Type","Payment Reference","Account Name","Amount (EUR)","Original Amount","Original Currency","Exchange Rate"
 "2024-01-15","2024-01-15","Alice Musterfrau","DE00000000000000000000","Presentment","Ref001","Main","-12.00","","",""
 "2024-01-20","2024-01-20","Bob Beispiel","","Income","Salary","Main","2000.00","","",""
+"2024-02-10","2024-02-10","","","Presentment","Coffee Shop","Main","-6.50","28.30","BRL","0.2297"
