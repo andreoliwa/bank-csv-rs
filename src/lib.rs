@@ -209,7 +209,18 @@ pub fn filter_data_frame(
             }
             let date_str = get_field(&record, &col_map, "Date");
             let amount = get_field(&record, &col_map, "Gross");
-            let payee = get_field(&record, &col_map, "Name");
+            let name = get_field(&record, &col_map, "Name");
+            let to_email = get_field(&record, &col_map, "To Email Address");
+            let payee = if to_email.is_empty() {
+                name
+            } else if name.is_empty() {
+                to_email
+            } else {
+                format!("{} <{}>", name, to_email)
+            };
+            let note = get_field(&record, &col_map, "Note");
+            let subject = get_field(&record, &col_map, "Subject");
+            let memo = if !note.is_empty() { note } else { subject };
             let bank_id = get_field(&record, &col_map, "Transaction ID");
             let date = parse_date(&date_str)?;
             rows.push(CsvOutputRow::new(
@@ -219,7 +230,7 @@ pub fn filter_data_frame(
                 amount,
                 transaction_type,
                 payee,
-                String::new(),
+                memo,
                 bank_id,
             ));
         }
