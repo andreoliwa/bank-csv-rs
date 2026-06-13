@@ -333,11 +333,9 @@ pub fn filter_data_frame(
                 memo,
                 String::new(),
             );
-            // Carry FX data only for debits in a foreign currency.
-            let amount_is_debit = row.amount.starts_with('-');
+            // Carry FX data for any transaction in a foreign currency (debits and refunds).
             if !original_currency.is_empty()
                 && original_currency != "EUR"
-                && amount_is_debit
                 && !original_amount_raw.is_empty()
             {
                 row.original_amount = original_amount_raw.trim_start_matches('-').to_string();

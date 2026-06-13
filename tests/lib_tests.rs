@@ -201,6 +201,22 @@ fn test_n26_new_fx_row_carries_original_amount_and_currency() {
 }
 
 #[test]
+fn test_n26_new_fx_refund_carries_original_amount_and_currency() {
+    let path = fixture("n26_new.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "ALL").expect("filter_data_frame failed");
+    let refund_row = rows
+        .iter()
+        .find(|r| r.transaction_type == "Presentment Refund")
+        .expect("Presentment Refund row not found");
+    assert_eq!(refund_row.original_currency, "BRL");
+    assert_eq!(refund_row.original_amount, "28.30");
+    assert!(
+        !refund_row.amount.starts_with('-'),
+        "Presentment Refund should be positive"
+    );
+}
+
+#[test]
 fn test_n26_new_eur_row_has_no_fx_data() {
     let path = fixture("n26_new.csv");
     let (_source, rows) = filter_data_frame(&path, b',', "ALL").expect("filter_data_frame failed");

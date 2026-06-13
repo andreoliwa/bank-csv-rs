@@ -116,8 +116,8 @@ fn test_passthrough_n26_new() {
         ],
         "Header should be the 10-column passthrough schema"
     );
-    // n26_new has 3 data rows (2 EUR + 1 BRL FX)
-    assert_eq!(records.len(), 3);
+    // n26_new has 4 data rows (2 EUR + 1 BRL FX debit + 1 BRL FX refund)
+    assert_eq!(records.len(), 4);
     // All amounts should be dot-decimal
     for row in &records {
         let amount = &row[3];
@@ -257,8 +257,8 @@ fn test_passthrough_multi_file() {
 
     // Exactly ONE header line (handled by csv::Writer)
     assert_eq!(headers.len(), 10, "Should have 10 header fields");
-    // n26_new=3 rows + paypal_current=2 rows
-    assert_eq!(records.len(), 5, "Expected 5 total rows (3 N26 + 2 PayPal)");
+    // n26_new=4 rows + paypal_current=2 rows
+    assert_eq!(records.len(), 6, "Expected 6 total rows (4 N26 + 2 PayPal)");
 }
 
 #[test]
