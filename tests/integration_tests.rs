@@ -102,8 +102,19 @@ fn test_passthrough_n26_new() {
 
     assert_eq!(
         headers,
-        vec!["Date", "Source", "Currency", "Amount", "Type", "Payee", "Memo", "BankId"],
-        "Header should be the 8-column passthrough schema"
+        vec![
+            "Date",
+            "Source",
+            "Currency",
+            "Amount",
+            "Type",
+            "Payee",
+            "Memo",
+            "BankId",
+            "OriginalAmount",
+            "OriginalCurrency"
+        ],
+        "Header should be the 10-column passthrough schema"
     );
     // n26_new has 2 data rows
     assert_eq!(records.len(), 2);
@@ -245,7 +256,7 @@ fn test_passthrough_multi_file() {
     let (headers, records) = parse_csv_output(&output);
 
     // Exactly ONE header line (handled by csv::Writer)
-    assert_eq!(headers.len(), 8, "Should have 8 header fields");
+    assert_eq!(headers.len(), 10, "Should have 10 header fields");
     // n26_new=2 rows + paypal_current=2 rows
     assert_eq!(records.len(), 4, "Expected 4 total rows (2 N26 + 2 PayPal)");
 }

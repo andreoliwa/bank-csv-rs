@@ -359,10 +359,11 @@ pub fn filter_data_frame(
                 .unwrap_or("")
                 .to_string();
             let date = parse_date(&date_str)?;
-            // Normalise DKB amount: comma-decimal -> dot-decimal
-            let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
+            // Normalise DKB amount: German thousands/decimal -> dot-decimal
+            let amount_dot = normalize_german_amount(&amount);
             currency = currency.replace(CHAR_COMMA, CHAR_DOT);
-            rows.push(CsvOutputRow::new(
+            let (orig_amount, orig_currency) = dkb_extract_fx(&memo).unzip();
+            let mut row = CsvOutputRow::new(
                 date,
                 Source::DKB.to_string(),
                 currency,
@@ -371,7 +372,10 @@ pub fn filter_data_frame(
                 payee,
                 memo,
                 bank_id,
-            ));
+            );
+            row.original_amount = orig_amount.unwrap_or_default();
+            row.original_currency = orig_currency.unwrap_or_default();
+            rows.push(row);
         }
         return Ok((source, rows));
     } else if first_columns == DKB_COLUMNS_2024_09 {
@@ -406,10 +410,11 @@ pub fn filter_data_frame(
                 .unwrap_or("")
                 .to_string();
             let date = parse_date(&date_str)?;
-            // Normalise DKB amount: comma-decimal -> dot-decimal
-            let amount_dot = amount.replace(CHAR_COMMA, CHAR_DOT);
+            // Normalise DKB amount: German thousands/decimal -> dot-decimal
+            let amount_dot = normalize_german_amount(&amount);
             currency = currency.replace(CHAR_COMMA, CHAR_DOT);
-            rows.push(CsvOutputRow::new(
+            let (orig_amount, orig_currency) = dkb_extract_fx(&memo).unzip();
+            let mut row = CsvOutputRow::new(
                 date,
                 Source::DKB.to_string(),
                 currency,
@@ -418,7 +423,10 @@ pub fn filter_data_frame(
                 payee,
                 memo,
                 bank_id,
-            ));
+            );
+            row.original_amount = orig_amount.unwrap_or_default();
+            row.original_currency = orig_currency.unwrap_or_default();
+            rows.push(row);
         }
         return Ok((source, rows));
     } else {
@@ -465,6 +473,37 @@ fn parse_date(date_str: &str) -> Result<NaiveDate, Box<dyn std::error::Error>> {
         return Ok(d);
     }
     Err(format!("Cannot parse date: {}", date_str).into())
+}
+
+/// Extract the original foreign-currency amount and currency code from a DKB memo.
+///
+/// Returns `Some((dot_decimal_amount, currency_code))` when the memo contains an FX marker
+/// (`" 1 Euro="`), or `None` when no FX data is present.
+///
+/// # Examples
+///
+/// ```
+/// use bank_csv::dkb_extract_fx;
+/// assert_eq!(
+///     dkb_extract_fx("2023-12-13      Debitk.44 Original 12,00 BRL 1 Euro=5,28634270 BRL VISA Debit"),
+///     Some(("12.00".to_string(), "BRL".to_string()))
+/// );
+/// assert_eq!(dkb_extract_fx("Normal domestic payment"), None);
+/// ```
+pub fn dkb_extract_fx(memo: &str) -> Option<(String, String)> {
+    if !memo.contains(" 1 Euro=") {
+        return None;
+    }
+    // Extract the currency code: the word immediately before " 1 Euro="
+    let euro_pos = memo.find(" 1 Euro=")?;
+    let before = memo[..euro_pos].trim_end();
+    let currency = before.split_whitespace().next_back()?.to_string();
+    if currency.len() < 2 || currency.len() > 4 || !currency.chars().all(|c| c.is_ascii_uppercase())
+    {
+        return None;
+    }
+    let raw_amount = dkb_extract_amount(&currency, memo)?;
+    Some((normalize_german_amount(&raw_amount), currency))
 }
 
 /// Extract the amount from a DKB memo
@@ -514,6 +553,60 @@ pub fn dkb_extract_amount(currency: &str, memo: &str) -> Option<String> {
     Some(amount.to_string())
 }
 
+/// Normalise a German-format amount string to dot-decimal.
+///
+/// German numbers use `.` as the thousands separator and `,` as the decimal
+/// separator.  Two-step conversion:
+/// 1. Remove thousands-separator dots (a dot followed by exactly 3 digits,
+///    then end-of-string, another dot, or a comma).
+/// 2. Replace the remaining decimal comma with a dot.
+///
+/// # Examples
+///
+/// ```
+/// use bank_csv::normalize_german_amount;
+/// assert_eq!(normalize_german_amount("-5.678"),    "-5678");
+/// assert_eq!(normalize_german_amount("-1.234,56"), "-1234.56");
+/// assert_eq!(normalize_german_amount("-34,14"),    "-34.14");
+/// assert_eq!(normalize_german_amount("6.089,31"),  "6089.31");
+/// assert_eq!(normalize_german_amount("-0,81"),     "-0.81");
+/// assert_eq!(normalize_german_amount("300"),       "300");
+/// assert_eq!(normalize_german_amount("-665"),      "-665");
+/// ```
+pub fn normalize_german_amount(amount: &str) -> String {
+    let bytes = amount.as_bytes();
+    let mut result = String::with_capacity(amount.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'.' {
+            // Check whether this dot is a thousands separator:
+            // it must be followed by exactly 3 ASCII digits, then either
+            // end-of-string, another dot, or a comma.
+            let after = i + 1;
+            let is_thousands = after + 3 <= bytes.len()
+                && bytes[after].is_ascii_digit()
+                && bytes[after + 1].is_ascii_digit()
+                && bytes[after + 2].is_ascii_digit()
+                && (after + 3 == bytes.len()
+                    || bytes[after + 3] == b'.'
+                    || bytes[after + 3] == b',');
+            if is_thousands {
+                // Skip the thousands-separator dot; keep the 3 digits.
+                i += 1;
+                continue;
+            }
+        }
+        // Replace decimal comma with dot.
+        result.push(if bytes[i] == b',' {
+            '.'
+        } else {
+            bytes[i] as char
+        });
+        i += 1;
+    }
+    result
+}
+
 /// A row in the CSV output
 #[derive(PartialEq, Eq)]
 pub struct CsvOutputRow {
@@ -533,6 +626,10 @@ pub struct CsvOutputRow {
     pub memo: String,
     /// The bank-native transaction ID when available
     pub bank_id: String,
+    /// Original amount in foreign currency (dot-decimal); empty string when no FX
+    pub original_amount: String,
+    /// Original currency code (e.g. "BRL"); empty string when no FX
+    pub original_currency: String,
 }
 
 impl PartialOrd for CsvOutputRow {
@@ -592,7 +689,6 @@ pub fn strip_quotes(s: String) -> String {
 impl CsvOutputRow {
     /// Create a new CsvOutputRow
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         date: NaiveDate,
         source: String,
@@ -621,6 +717,8 @@ impl CsvOutputRow {
             payee: strip_quotes(payee),
             memo: strip_quotes(memo),
             bank_id: strip_quotes(bank_id),
+            original_amount: String::new(),
+            original_currency: String::new(),
         }
     }
 
@@ -635,6 +733,8 @@ impl CsvOutputRow {
         record.push_field("Payee");
         record.push_field("Memo");
         record.push_field("BankId");
+        record.push_field("OriginalAmount");
+        record.push_field("OriginalCurrency");
         record
     }
 
@@ -649,6 +749,8 @@ impl CsvOutputRow {
         record.push_field(&self.payee);
         record.push_field(&self.memo);
         record.push_field(&self.bank_id);
+        record.push_field(&self.original_amount);
+        record.push_field(&self.original_currency);
         record
     }
 
@@ -664,6 +766,8 @@ impl CsvOutputRow {
         record.push_field(&self.payee);
         record.push_field(&self.memo);
         record.push_field(&self.bank_id);
+        record.push_field(&self.original_amount);
+        record.push_field(&self.original_currency);
         record
     }
 }
