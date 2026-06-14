@@ -1,5 +1,7 @@
-//! Unit tests for lib.rs functions: filter_data_frame, detect_separator, dkb_edit_file, dkb_extract_amount
-use bank_csv::{detect_separator, dkb_edit_file, dkb_extract_amount, filter_data_frame, Source};
+//! Unit tests for lib.rs functions: filter_data_frame, detect_separator, dkb_edit_file, dkb_extract_amount, dkb_extract_fx
+use bank_csv::{
+    detect_separator, dkb_edit_file, dkb_extract_amount, dkb_extract_fx, filter_data_frame, Source,
+};
 use chrono::NaiveDate;
 use std::path::Path;
 use tempfile::NamedTempFile;
@@ -48,6 +50,33 @@ fn test_dkb_extract_amount_found() {
 fn test_dkb_extract_amount_not_found() {
     let result = dkb_extract_amount("BRL", "Nothing here");
     assert_eq!(result, None);
+}
+
+// --- dkb_extract_fx ---
+
+// Old format: "Original <amount> <currency> 1 Euro=..."
+#[test]
+fn test_dkb_extract_fx_old_format() {
+    assert_eq!(
+        dkb_extract_fx(
+            "2023-12-13      Debitk.44 Original 12,00 BRL 1 Euro=5,28634270 BRL VISA Debit"
+        ),
+        Some(("12.00".to_string(), "BRL".to_string()))
+    );
+}
+
+// New format: "Ursprungsbetrag in Fremdwährung <amount> <currency> / Umrechnungsrate: 1 Euro=..."
+#[test]
+fn test_dkb_extract_fx_new_format() {
+    assert_eq!(
+        dkb_extract_fx("VISA Debitkartenumsatz vom 09.06.2026 in Fremdwährung / Ursprungsbetrag in Fremdwährung 396,30 BRL / Umrechnungsrate: 1 Euro=5,93529930 BRL"),
+        Some(("396.30".to_string(), "BRL".to_string()))
+    );
+}
+
+#[test]
+fn test_dkb_extract_fx_domestic() {
+    assert_eq!(dkb_extract_fx("Normal domestic payment"), None);
 }
 
 // --- dkb_edit_file ---

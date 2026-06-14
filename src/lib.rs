@@ -505,19 +505,25 @@ fn parse_date(date_str: &str) -> Result<NaiveDate, Box<dyn std::error::Error>> {
 ///     Some(("12.00".to_string(), "BRL".to_string()))
 /// );
 /// assert_eq!(dkb_extract_fx("Normal domestic payment"), None);
+/// assert_eq!(
+///     dkb_extract_fx("VISA Debitkartenumsatz vom 09.06.2026 in Fremdwährung / Ursprungsbetrag in Fremdwährung 396,30 BRL / Umrechnungsrate: 1 Euro=5,93529930 BRL"),
+///     Some(("396.30".to_string(), "BRL".to_string()))
+/// );
 /// ```
 pub fn dkb_extract_fx(memo: &str) -> Option<(String, String)> {
     if !memo.contains(" 1 Euro=") {
         return None;
     }
-    // Extract the currency code: the word immediately before " 1 Euro="
+    // Extract the currency code: last ISO-looking word (2-4 uppercase ASCII) before " 1 Euro=".
+    // The new DKB memo format inserts "/ Umrechnungsrate:" between the currency and the rate
+    // marker, so we scan backwards for the first qualifying word rather than taking next_back().
     let euro_pos = memo.find(" 1 Euro=")?;
     let before = memo[..euro_pos].trim_end();
-    let currency = before.split_whitespace().next_back()?.to_string();
-    if currency.len() < 2 || currency.len() > 4 || !currency.chars().all(|c| c.is_ascii_uppercase())
-    {
-        return None;
-    }
+    let currency = before
+        .split_whitespace()
+        .rev()
+        .find(|w| w.len() >= 2 && w.len() <= 4 && w.chars().all(|c| c.is_ascii_uppercase()))?
+        .to_string();
     let raw_amount = dkb_extract_amount(&currency, memo)?;
     Some((normalize_german_amount(&raw_amount), currency))
 }
