@@ -208,7 +208,7 @@ pub fn filter_data_frame(
                 continue;
             }
             let date_str = get_field(&record, &col_map, "Date");
-            let amount = get_field(&record, &col_map, "Gross");
+            let amount = normalize_german_amount(&get_field(&record, &col_map, "Gross"));
             let name = get_field(&record, &col_map, "Name");
             let to_email = get_field(&record, &col_map, "To Email Address");
             let payee = if to_email.is_empty() {
@@ -247,7 +247,7 @@ pub fn filter_data_frame(
                 continue;
             }
             let date_str = get_field(&record, &col_map, "Date");
-            let amount = get_field(&record, &col_map, "Gross");
+            let amount = normalize_german_amount(&get_field(&record, &col_map, "Gross"));
             let payee = get_field(&record, &col_map, "Name");
             let bank_id = get_field(&record, &col_map, "Transaction ID");
             let date = parse_date(&date_str)?;

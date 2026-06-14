@@ -205,8 +205,8 @@ fn test_passthrough_paypal_current() {
     let output = cmd.assert().success().get_output().stdout.clone();
     let (_headers, records) = parse_csv_output(&output);
 
-    // PayPal fixture: 2 Debit EUR rows (1 Credit/USD filtered)
-    assert_eq!(records.len(), 2, "Expected 2 rows after PayPal filtering");
+    // PayPal fixture: 3 Debit EUR rows (1 Credit/USD filtered)
+    assert_eq!(records.len(), 3, "Expected 3 rows after PayPal filtering");
     // BankId values match fixture Transaction IDs
     assert!(
         records.iter().any(|r| r[7] == "TX-FAKE-001"),
@@ -215,6 +215,10 @@ fn test_passthrough_paypal_current() {
     assert!(
         records.iter().any(|r| r[7] == "TX-FAKE-002"),
         "Should have TX-FAKE-002"
+    );
+    assert!(
+        records.iter().any(|r| r[7] == "TX-FAKE-004"),
+        "Should have TX-FAKE-004"
     );
     // No General Currency Conversion row
     for row in &records {
@@ -257,8 +261,8 @@ fn test_passthrough_multi_file() {
 
     // Exactly ONE header line (handled by csv::Writer)
     assert_eq!(headers.len(), 10, "Should have 10 header fields");
-    // n26_new=4 rows + paypal_current=2 rows
-    assert_eq!(records.len(), 6, "Expected 6 total rows (4 N26 + 2 PayPal)");
+    // n26_new=4 rows + paypal_current=3 rows
+    assert_eq!(records.len(), 7, "Expected 7 total rows (4 N26 + 3 PayPal)");
 }
 
 #[test]

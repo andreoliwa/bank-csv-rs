@@ -104,9 +104,9 @@ fn test_filter_data_frame_paypal_current_debit_only() {
     let path = fixture("paypal_current.csv");
     let (source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
     assert_eq!(source, Source::PayPal);
-    // PayPal current fixture: 3 rows total; Credit + General Currency Conversion filtered
-    // Only 2 Debit EUR rows remain
-    assert_eq!(rows.len(), 2);
+    // PayPal current fixture: 4 rows total; Credit + General Currency Conversion filtered
+    // Only 3 Debit EUR rows remain
+    assert_eq!(rows.len(), 3);
     // Verify no "General Currency Conversion" row is present
     for row in &rows {
         assert_ne!(
@@ -178,6 +178,20 @@ fn test_paypal_memo_falls_back_to_subject() {
     let path = fixture("paypal_payee_memo.csv");
     let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
     assert_eq!(rows[1].memo, "subject text");
+}
+
+// --- PayPal European-locale amount normalization ---
+
+#[test]
+fn test_paypal_european_thousands_amount_normalized() {
+    // "-1.227,95" (DE locale: dot=thousands, comma=decimal) must parse to "-1227.95"
+    let path = fixture("paypal_current.csv");
+    let (_source, rows) = filter_data_frame(&path, b',', "EUR").expect("filter_data_frame failed");
+    let large = rows
+        .iter()
+        .find(|r| r.bank_id == "TX-FAKE-004")
+        .expect("TX-FAKE-004 row not found");
+    assert_eq!(large.amount, "-1227.95");
 }
 
 // --- N26 new format FX ---
