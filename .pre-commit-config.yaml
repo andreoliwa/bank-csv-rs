@@ -8,7 +8,7 @@ default_language_version:
   python: python3.11
 repos:
   - repo: https://github.com/andreoliwa/nitpick
-    rev: v0.38.0
+    rev: v0.38.1
     hooks:
       - id: nitpick-suggest
       - id: nitpick-check-all
@@ -30,12 +30,12 @@ repos:
       - id: cargo-check
       - id: clippy
   - repo: https://github.com/pappasam/toml-sort
-    rev: v0.24.3
+    rev: v0.24.4
     hooks:
       - id: toml-sort-fix
         exclude: Cargo.lock
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.10.0
+    rev: v4.18.0
     hooks:
       - id: commitizen
         stages:
@@ -46,7 +46,7 @@ repos:
       - id: bashate
         args: [-i, E006]
   - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.11.0.1
+    rev: v0.11.0.1-1
     hooks:
       - id: shellcheck
   - repo: https://github.com/jumanjihouse/pre-commit-hooks
